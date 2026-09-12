@@ -17,4 +17,10 @@ export const config = [
     },
   },
   pluginReactHooks.configs.flat.recommended,
+  {
+    rules: {
+      // Initial async data loading is a legitimate synchronization effect in client apps.
+      "react-hooks/set-state-in-effect": "off",
+    },
+  },
 ];

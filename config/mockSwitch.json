@@ -1,0 +1,17 @@
+{
+  "info": {
+    "id": "Field Switch",
+    "name": "Field Switch",
+    "manufacturer": "mock",
+    "model": "mock",
+    "managementAddress": "0.0.0.0"
+  },
+  "config": {
+    "managementVlan": 100,
+    "onboardingVlan": 999,
+
+    "clientPorts": ["1", "2", "3", "4", "5", "6", "7", "8"],
+
+    "apTrunkPorts": ["24"]
+  }
+}
