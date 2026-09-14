@@ -10,64 +10,25 @@ import {
   demoData,
   type DashboardData,
   type DhcpLease,
+  type PortRole,
   type SimulatorState,
   type SwitchPort,
   type TeamNetwork,
   type TeamStatus,
 } from "./api";
 
-const Icon = ({ name, size = 18 }: { name: string; size?: number }) => {
+const ROLE_LABEL: Record<PortRole, string> = {
+  client: "Computer",
+  unused: "Unused",
+  "ap-trunk": "Access point",
+  server: "Server",
+  management: "Management",
+};
+
+const Icon = ({ name, size = 16 }: { name: string; size?: number }) => {
   const paths: Record<string, ReactNode> = {
-    grid: (
-      <>
-        <rect x="3" y="3" width="6" height="6" rx="1" />
-        <rect x="15" y="3" width="6" height="6" rx="1" />
-        <rect x="3" y="15" width="6" height="6" rx="1" />
-        <rect x="15" y="15" width="6" height="6" rx="1" />
-      </>
-    ),
-    radio: (
-      <>
-        <path d="M12 20a8 8 0 1 0-8-8" />
-        <path d="M12 16a4 4 0 1 0-4-4" />
-        <circle cx="12" cy="12" r="1.5" />
-      </>
-    ),
-    activity: <path d="M3 12h4l2-7 4 14 2-7h6" />,
-    settings: (
-      <>
-        <circle cx="12" cy="12" r="3" />
-        <path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-1.4 1.4-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5v.2h-2v-.2a1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.9.3l-.1.1L9 17l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H7.7v-2h.2a1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.9L9 9l1.4-1.4.1.1a1.7 1.7 0 0 0 1.9.3 1.7 1.7 0 0 0 1-1.5v-.2h2v.2a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 9l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.5 1h.2v2h-.2a1.7 1.7 0 0 0-1.5 1Z" />
-      </>
-    ),
-    plus: (
-      <>
-        <path d="M12 5v14M5 12h14" />
-      </>
-    ),
-    arrow: (
-      <>
-        <path d="M5 12h14M13 6l6 6-6 6" />
-      </>
-    ),
-    close: (
-      <>
-        <path d="m6 6 12 12M18 6 6 18" />
-      </>
-    ),
-    port: (
-      <>
-        <rect x="4" y="4" width="16" height="16" rx="2" />
-        <path d="M8 8h8M8 12h8M8 16h4" />
-      </>
-    ),
-    server: (
-      <>
-        <rect x="4" y="3" width="16" height="7" rx="1" />
-        <rect x="4" y="14" width="16" height="7" rx="1" />
-        <path d="M8 6h.01M8 17h.01" />
-      </>
-    ),
+    plus: <path d="M12 5v14M5 12h14" />,
+    close: <path d="m6 6 12 12M18 6 6 18" />,
     refresh: (
       <>
         <path d="M20 11a8.1 8.1 0 0 0-14.6-3L3 11" />
@@ -75,17 +36,7 @@ const Icon = ({ name, size = 18 }: { name: string; size?: number }) => {
         <path d="M21 19v-6h-6" />
       </>
     ),
-    external: (
-      <>
-        <path d="M14 4h6v6M20 4l-9 9" />
-        <path d="M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5" />
-      </>
-    ),
-    wifi: (
-      <>
-        <path d="M5 12.5a11 11 0 0 1 14 0M8 16a6.5 6.5 0 0 1 8 0M11 19.2a2 2 0 0 1 2 0" />
-      </>
-    ),
+    arrow: <path d="M5 12h14M13 6l6 6-6 6" />,
   };
   return (
     <svg
@@ -105,279 +56,215 @@ const Icon = ({ name, size = 18 }: { name: string; size?: number }) => {
   );
 };
 
-function statusLabel(status: TeamStatus) {
-  return status === "waiting-for-robot"
-    ? "Waiting for robot"
-    : status.replaceAll("-", " ");
+function statusTone(status: TeamStatus | "link-down" | "ready") {
+  if (status === "online" || status === "ready") return "live";
+  if (status === "error" || status === "link-down") return "down";
+  if (status === "waiting-for-robot" || status === "provisioning")
+    return "wait";
+  return "idle";
 }
 
-function StatusDot({
+function statusText(status: TeamStatus) {
+  if (status === "online") return "Live";
+  if (status === "waiting-for-robot") return "Waiting";
+  if (status === "provisioning") return "Setup";
+  if (status === "offline") return "Offline";
+  return "Error";
+}
+
+function Status({
   status,
   label,
 }: {
-  status: TeamStatus | "onboarding" | "link-down";
+  status: TeamStatus | "link-down" | "ready";
   label?: string;
 }) {
-  const tone =
-    status === "online"
-      ? "online"
-      : status === "error" || status === "link-down"
-        ? "error"
-        : status === "waiting-for-robot"
-          ? "waiting"
-          : "neutral";
+  const text =
+    label ??
+    (status === "link-down"
+      ? "Down"
+      : status === "ready"
+        ? "Ready"
+        : statusText(status as TeamStatus));
   return (
-    <span className={`status ${tone}`}>
+    <span className={`status ${statusTone(status)}`}>
       <i />
-      {label ??
-        (status === "link-down"
-          ? "Link down"
-          : statusLabel(status as TeamStatus))}
+      {text}
     </span>
   );
 }
 
-function TeamCard({
-  team,
-  onSelect,
-  onDisconnect,
-  selected,
-}: {
-  team: TeamNetwork;
-  onSelect: () => void;
-  onDisconnect: () => void;
-  selected: boolean;
-}) {
-  const connected = team.ports?.filter((port) => port.linkUp).length ?? 0;
-  return (
-    <article className={`team-card ${selected ? "selected" : ""}`}>
-      <button
-        className="team-open"
-        aria-label={`Inspect Team ${team.teamNumber}`}
-        onClick={onSelect}
-      />
-      <div className="team-card-top">
-        <span className="eyebrow">ROBOT NETWORK</span>
-        <StatusDot status={team.status} />
-      </div>
-      <strong className="team-number">{team.teamNumber}</strong>
-      <div className="team-card-meta">
-        <span>VLAN {team.vlanId}</span>
-        <span>{team.accessPointSlot ?? "AP unassigned"}</span>
-      </div>
-      <div className="team-card-foot">
-        <span>
-          <i className={`mini-dot ${team.robotOnline ? "on" : ""}`} />
-          {team.robotOnline ? "Robot connected" : "Robot not seen"}
-        </span>
-        <span>{connected} wired</span>
-      </div>
-      <button
-        className="team-remove"
-        aria-label={`Disconnect Team ${team.teamNumber}`}
-        title="Disconnect team network"
-        onClick={(event) => {
-          event.stopPropagation();
-          onDisconnect();
-        }}
-      >
-        <Icon name="close" size={13} />
-      </button>
-    </article>
-  );
-}
-
-function SwitchRack({
-  switchInfo,
-  selectedId,
-  onSelect,
-}: {
-  switchInfo: DashboardData["switches"][number];
-  selectedId?: string;
-  onSelect: (port: SwitchPort) => void;
-}) {
-  const ports = switchInfo.ports;
-  return (
-    <section className="switch-panel panel">
-      <div className="panel-heading">
-        <div>
-          <span className="eyebrow">PHYSICAL FABRIC</span>
-          <h2>
-            {switchInfo.name} <small>{ports.length} ports</small>
-          </h2>
-        </div>
-        <span className="live-pill">
-          <i /> live telemetry
-        </span>
-      </div>
-      <div className="switch-meta">
-        <span>
-          <b className="green-dot" />
-          Online
-        </span>
-        <span>
-          <Icon name="server" size={14} />{" "}
-          {switchInfo.model ?? "Managed switch"}
-        </span>
-        <span>{switchInfo.managementAddress}</span>
-      </div>
-      <div className="port-grid" aria-label="Switch ports">
-        {ports.map((port) => (
-          <button
-            key={port.id}
-            className={`switch-port ${port.linkUp ? "link-up" : ""} ${port.enabled ? "" : "disabled"} ${port.teamNumber ? "assigned" : "onboarding"} ${selectedId === port.id ? "is-selected" : ""}`}
-            onClick={() => onSelect(port)}
-            aria-label={`Port ${port.id}, ${port.enabled ? (port.linkUp ? "link up" : "link down") : "administratively disabled"}${port.teamNumber ? `, Team ${port.teamNumber}` : ""}`}
-            title={`Port ${port.id} · ${port.enabled ? (port.linkUp ? "link up" : "link down") : "disabled"}`}
-          >
-            <span className="port-number">{port.id}</span>
-            <span className="port-state">
-              {!port.enabled ? "OFF" : port.linkUp ? <i /> : "—"}
-            </span>
-            {port.teamNumber && (
-              <span className="port-team">{port.teamNumber}</span>
-            )}
-          </button>
-        ))}
-      </div>
-      <div className="legend">
-        <span>
-          <i className="legend-swatch assigned" /> assigned
-        </span>
-        <span>
-          <i className="legend-swatch onboarding" /> onboarding
-        </span>
-        <span>
-          <i className="legend-swatch down" /> link down
-        </span>
-      </div>
-    </section>
-  );
-}
-
-function PortInspector({
-  port,
-  teams,
-  switchId,
+function CreateTeamModal({
   onClose,
-  onUpdate,
-  onRefresh,
-  usingDemo,
+  onCreate,
 }: {
-  port: SwitchPort;
-  teams: TeamNetwork[];
-  switchId: string;
   onClose: () => void;
-  onUpdate: (port: SwitchPort) => void;
-  onRefresh: () => Promise<void>;
-  usingDemo: boolean;
+  onCreate: (teamNumber: number) => Promise<void>;
 }) {
+  const [teamNumber, setTeamNumber] = useState("");
+  const [error, setError] = useState("");
   const [working, setWorking] = useState(false);
-  const [operationError, setOperationError] = useState("");
-  const run = async (
-    operation: () => Promise<SwitchPort | void>,
-    optimistic?: SwitchPort,
-  ) => {
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    const number = Number(teamNumber);
+    if (!Number.isInteger(number) || number < 1 || number > 99999) {
+      setError("Enter a team number.");
+      return;
+    }
+    setError("");
     setWorking(true);
-    setOperationError("");
     try {
-      await operation();
-      await onRefresh();
-    } catch (error) {
-      if (usingDemo && optimistic) onUpdate(optimistic);
-      setOperationError(
-        error instanceof Error ? error.message : "The port action failed.",
-      );
+      await onCreate(number);
+      onClose();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not add team.");
     } finally {
       setWorking(false);
     }
   };
-  const currentTeam = teams.find((team) => team.id === port.teamNetworkId);
   return (
-    <aside className="inspector">
-      <div className="inspector-header">
-        <div>
-          <span className="eyebrow">PORT INSPECTOR</span>
-          <h2>Port {port.id}</h2>
+    <div
+      className="scrim"
+      role="presentation"
+      onMouseDown={(event) => {
+        if (event.currentTarget === event.target) onClose();
+      }}
+    >
+      <form className="modal" onSubmit={submit}>
+        <div className="modal-head">
+          <h2>Add team</h2>
+          <button
+            type="button"
+            className="ghost"
+            onClick={onClose}
+            aria-label="Close"
+          >
+            <Icon name="close" />
+          </button>
         </div>
-        <button
-          className="icon-button"
-          onClick={onClose}
-          aria-label="Close inspector"
-        >
-          <Icon name="close" />
-        </button>
-      </div>
-      <div className="inspector-status">
-        <StatusDot
-          status={port.linkUp ? "online" : "link-down"}
-          label={port.linkUp ? "Link active" : "Link down"}
-        />
-        <span>{port.enabled ? "Enabled" : "Disabled"}</span>
-      </div>
-      <div className="inspector-facts">
-        <div>
-          <span>Assigned VLAN</span>
-          <b>{port.accessVlan ?? "—"}</b>
+        <label className="field">
+          Team number
+          <input
+            autoFocus
+            inputMode="numeric"
+            value={teamNumber}
+            onChange={(event) => setTeamNumber(event.target.value)}
+            placeholder="5712"
+          />
+        </label>
+        {error && <p className="error">{error}</p>}
+        <div className="modal-actions">
+          <button type="button" className="btn" onClick={onClose}>
+            Cancel
+          </button>
+          <button className="btn accent" disabled={working}>
+            {working ? "Adding…" : "Add"}
+          </button>
         </div>
-        <div>
-          <span>Role</span>
-          <b>{port.role}</b>
-        </div>
-        <div>
-          <span>Speed</span>
-          <b>{port.speedMbps ? `${port.speedMbps} Mbps` : "—"}</b>
-        </div>
-        <div>
-          <span>Duplex</span>
-          <b>{port.duplex ?? "—"}</b>
-        </div>
-      </div>
-      <div className="inspector-block">
-        <span className="eyebrow">ASSIGNMENT</span>
-        {currentTeam ? (
-          <div className="assignment">
-            <span className="team-mark small">
-              {String(currentTeam.teamNumber).slice(-2)}
-            </span>
-            <div>
-              <strong>Team {currentTeam.teamNumber}</strong>
-              <span>VLAN {currentTeam.vlanId}</span>
-            </div>
+      </form>
+    </div>
+  );
+}
+
+function Inspector({
+  port,
+  team,
+  teams,
+  switchId,
+  ports,
+  onClose,
+  onUpdate,
+  onRefresh,
+  onDisconnect,
+  usingDemo,
+}: {
+  port?: SwitchPort;
+  team?: TeamNetwork;
+  teams: TeamNetwork[];
+  switchId?: string;
+  ports: SwitchPort[];
+  onClose: () => void;
+  onUpdate: (port: SwitchPort) => void;
+  onRefresh: () => Promise<void>;
+  onDisconnect: (team: TeamNetwork) => void;
+  usingDemo: boolean;
+}) {
+  const [working, setWorking] = useState(false);
+  const [error, setError] = useState("");
+  const run = async (
+    operation: () => Promise<unknown>,
+    optimistic?: SwitchPort,
+  ) => {
+    if (!switchId) return;
+    setWorking(true);
+    setError("");
+    try {
+      await operation();
+      await onRefresh();
+    } catch (err) {
+      if (usingDemo && optimistic) onUpdate(optimistic);
+      setError(err instanceof Error ? err.message : "Action failed.");
+    } finally {
+      setWorking(false);
+    }
+  };
+  const assignable = ports.filter(
+    (item) =>
+      (item.role === "client" || item.role === "unused") && !item.teamNetworkId,
+  );
+  if (!port && !team) {
+    return (
+      <aside className="inspect empty">
+        <p>Select a team or port</p>
+      </aside>
+    );
+  }
+  if (port && switchId) {
+    const current = teams.find((item) => item.id === port.teamNetworkId);
+    return (
+      <aside className="inspect">
+        <div className="inspect-head">
+          <div>
+            <span className="kicker">Port</span>
+            <h2>{port.id}</h2>
           </div>
-        ) : (
-          <p className="muted">
-            This client port is on the onboarding VLAN. Assign it once the
-            laptop is identified.
-          </p>
-        )}
-        <label className="select-label">
-          Move to team
+          <button className="ghost" onClick={onClose} aria-label="Close">
+            <Icon name="close" />
+          </button>
+        </div>
+        <div className="inspect-row">
+          <Status
+            status={port.linkUp ? "online" : "link-down"}
+            label={port.linkUp ? "Up" : "Down"}
+          />
+          <span>{port.enabled ? "On" : "Off"}</span>
+        </div>
+        <label className="field">
+          Team
           <select
             value={port.teamNetworkId ?? ""}
+            disabled={working}
             onChange={(event) => {
-              const team = teams.find((item) => item.id === event.target.value);
-              if (team)
-                void run(() => api.assignPort(switchId, port.id, team.id), {
+              const next = teams.find((item) => item.id === event.target.value);
+              if (next)
+                void run(() => api.assignPort(switchId, port.id, next.id), {
                   ...port,
-                  teamNetworkId: team.id,
-                  teamNumber: team.teamNumber,
-                  accessVlan: team.vlanId,
+                  teamNetworkId: next.id,
+                  teamNumber: next.teamNumber,
                 });
             }}
-            disabled={working}
           >
-            <option value="">Select a team…</option>
-            {teams.map((team) => (
-              <option key={team.id} value={team.id}>
-                Team {team.teamNumber} · VLAN {team.vlanId}
+            <option value="">Unassigned</option>
+            {teams.map((item) => (
+              <option key={item.id} value={item.id}>
+                {item.teamNumber}
               </option>
             ))}
           </select>
         </label>
-        {!currentTeam && (
-          <label className="select-label">
-            Port role
+        {!current && (
+          <label className="field">
+            Role
             <select
               value={port.role}
               disabled={working}
@@ -386,75 +273,129 @@ function PortInspector({
                   api.setPortRole(
                     switchId,
                     port.id,
-                    event.target.value as SwitchPort["role"],
+                    event.target.value as PortRole,
                   ),
                 )
               }
             >
-              <option value="client">Client</option>
-              <option value="unused">Unused</option>
-              <option value="ap-trunk">AP trunk</option>
-              <option value="server">Server</option>
-              <option value="management">Management</option>
+              {Object.entries(ROLE_LABEL).map(([value, label]) => (
+                <option key={value} value={value}>
+                  {label}
+                </option>
+              ))}
             </select>
           </label>
         )}
-      </div>
-      {port.macs?.length ? (
-        <div className="inspector-block">
-          <span className="eyebrow">LEARNED DEVICES</span>
-          {port.macs.map((mac) => (
-            <div className="mac-row" key={mac}>
-              <span className="mac-icon">
-                <Icon name="port" size={15} />
-              </span>
-              <code>{mac}</code>
-              <span className="muted">dynamic</span>
-            </div>
-          ))}
+        {port.macs?.length ? (
+          <ul className="macs">
+            {port.macs.map((mac) => (
+              <li key={mac}>
+                <code>{mac}</code>
+              </li>
+            ))}
+          </ul>
+        ) : null}
+        {error && <p className="error">{error}</p>}
+        <div className="inspect-actions">
+          {current && (
+            <button
+              className="btn"
+              disabled={working}
+              onClick={() =>
+                void run(() => api.returnPortToOnboarding(switchId, port.id), {
+                  ...port,
+                  teamNetworkId: undefined,
+                  teamNumber: undefined,
+                })
+              }
+            >
+              Unassign
+            </button>
+          )}
+          <button
+            className="btn"
+            disabled={working}
+            onClick={() => void run(() => api.bouncePort(switchId, port.id))}
+          >
+            Cycle
+          </button>
+          <button
+            className={`btn ${port.enabled ? "danger" : "accent"}`}
+            disabled={working}
+            onClick={() =>
+              void run(
+                () => api.setPortEnabled(switchId, port.id, !port.enabled),
+                { ...port, enabled: !port.enabled },
+              )
+            }
+          >
+            {port.enabled ? "Disable" : "Enable"}
+          </button>
         </div>
-      ) : null}
-      {operationError && <p className="form-error">{operationError}</p>}
-      <div className="inspector-actions">
-        <button
-          className="button secondary"
-          disabled={
-            working || (port.role !== "client" && port.role !== "unused")
-          }
-          title={
-            port.role !== "client" && port.role !== "unused"
-              ? `Reserved ${port.role} ports cannot be returned to onboarding`
-              : undefined
-          }
-          onClick={() =>
-            void run(() => api.returnPortToOnboarding(switchId, port.id), {
-              ...port,
-              teamNetworkId: undefined,
-              teamNumber: undefined,
-              accessVlan: 999,
-            })
-          }
-        >
-          Return to onboarding
+      </aside>
+    );
+  }
+  if (!team) return null;
+  return (
+    <aside className="inspect">
+      <div className="inspect-head">
+        <div>
+          <span className="kicker">Team</span>
+          <h2>{team.teamNumber}</h2>
+        </div>
+        <button className="ghost" onClick={onClose} aria-label="Close">
+          <Icon name="close" />
         </button>
-        <button
-          className="button secondary"
-          disabled={working}
-          onClick={() => void run(() => api.bouncePort(switchId, port.id))}
-        >
-          <Icon name="refresh" size={15} /> Bounce port
-        </button>
-        <button
-          className={`button ${port.enabled ? "danger" : "primary"}`}
-          disabled={working}
-          onClick={() =>
-            void run(
-              () => api.setPortEnabled(switchId, port.id, !port.enabled),
-              { ...port, enabled: !port.enabled },
-            )
-          }
-        >
-          {port.enabled ? "Disable port" : "Enable port"}
+      </div>
+      <div className="inspect-row">
+        <Status status={team.status} />
+        <span>{team.robotOnline ? "Robot" : "No robot"}</span>
+      </div>
+      {team.ports?.length ? (
+        <ul className="port-list">
+          {team.ports.map((wired) => (
+            <li key={wired.portId}>
+              Port {wired.portId}
+              <Status
+                status={wired.linkUp ? "online" : "link-down"}
+                label={wired.linkUp ? "Up" : "Down"}
+              />
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="quiet">No ports</p>
+      )}
+      {switchId && (
+        <label className="field">
+          Connect port
+          <select
+            value=""
+            disabled={working}
+            onChange={(event) => {
+              const next = ports.find((item) => item.id === event.target.value);
+              if (next)
+                void run(() => api.assignPort(switchId, next.id, team.id), {
+                  ...next,
+                  teamNetworkId: team.id,
+                  teamNumber: team.teamNumber,
+                });
+            }}
+          >
+            <option value="">Choose…</option>
+            {assignable.map((item) => (
+              <option key={item.id} value={item.id}>
+                {item.id}
+                {item.teamNumber ? ` · ${item.teamNumber}` : ""}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+      {error && <p className="error">{error}</p>}
+      <div className="inspect-actions">
+        <button className="btn danger" onClick={() => onDisconnect(team)}>
+          Remove team
         </button>
       </div>
     </aside>
@@ -559,11 +500,7 @@ function SimulationLab({
       await refreshSimulation();
     } catch {
       if (usingDemo) onUpdatePort(fallback);
-      onToast(
-        usingDemo
-          ? "Simulator API unavailable; the change is local to this session."
-          : "Simulator change failed; hardware state was not changed.",
-      );
+      onToast(usingDemo ? "Local only." : "Lab change failed.");
     } finally {
       setWorking(false);
     }
@@ -578,11 +515,7 @@ function SimulationLab({
       await onRefresh();
       await refreshSimulation();
     } catch {
-      onToast(
-        usingDemo
-          ? "Hardware availability requires the simulator API."
-          : `${kind === "switch" ? "Switch" : "AP"} availability change failed; state was not changed.`,
-      );
+      onToast("Availability change failed.");
     }
   };
   const applyStation = async () => {
@@ -596,434 +529,290 @@ function SimulationLab({
       await onRefresh();
       await refreshSimulation();
     } catch {
-      onToast(
-        usingDemo
-          ? "Station state changed in local simulation."
-          : "Station update failed; hardware state was not changed.",
-      );
+      onToast("Station update failed.");
     } finally {
       setWorking(false);
     }
   };
   const reset = async (scope: "hardware" | "demo") => {
-    const mode = scope === "hardware" ? "hardware-to-desired" : "seeded-demo";
-    const label = scope === "demo" ? "seeded demo data" : "simulated hardware";
-    const consequence =
-      scope === "demo"
-        ? "This rebuilds demo teams, APs, links, and DHCP leases."
-        : "Desired team assignments stay intact; learned links and MACs are repaired. DHCP leases are preserved.";
-    if (!window.confirm(`Reset ${label}? ${consequence}`)) return;
+    if (
+      !window.confirm(scope === "demo" ? "Reset demo data?" : "Reset hardware?")
+    )
+      return;
     setWorking(true);
     try {
-      await api.simulator.reset(mode);
+      await api.simulator.reset(
+        scope === "hardware" ? "hardware-to-desired" : "seeded-demo",
+      );
       await onRefresh();
       await refreshSimulation();
-      onToast(`${scope === "demo" ? "Demo" : "Hardware"} simulation reset.`);
+      onToast("Reset.");
     } catch {
-      onToast("Reset endpoint unavailable; no state was changed.");
+      onToast("Reset failed.");
     } finally {
       setWorking(false);
     }
   };
   return (
-    <section className="lab panel">
-      <div className="panel-heading">
-        <div>
-          <span className="eyebrow">DEVELOPMENT TOOL</span>
-          <h2>Simulation lab</h2>
-        </div>
-        <span className="sim-badge">MOCK HARDWARE</span>
-      </div>
-      <p className="muted">
-        Exercise the handoff chain with deterministic switch, DHCP, and AP
-        state. These controls are development-only.
-      </p>
-      <div
-        className="lab-hardware-row"
-        aria-label="Simulated hardware availability"
-      >
+    <section className="lab">
+      <header>
+        <h2>Lab</h2>
+      </header>
+      <div className="lab-row">
         <button
-          className={`lab-toggle ${switchOnline ? "active" : ""}`}
+          className={`chip ${switchOnline ? "on" : ""}`}
           disabled={working || !switchId}
           onClick={() => void setAvailability("switch")}
         >
-          <i /> Switch {switchOnline ? "available" : "offline"}
+          Switch {switchOnline ? "on" : "off"}
         </button>
         <button
-          className={`lab-toggle ${apOnline ? "active" : ""}`}
+          className={`chip ${apOnline ? "on" : ""}`}
           disabled={working || !accessPointId}
           onClick={() => void setAvailability("access-point")}
         >
-          <i /> AP {apOnline ? "available" : "offline"}
+          AP {apOnline ? "on" : "off"}
         </button>
       </div>
-      <div className="lab-section">
-        <div className="lab-section-head">
-          <span className="eyebrow">SWITCH PORT</span>
-          <span className="muted">{ports.length} ports available</span>
-        </div>
-        <label className="lab-label">
-          Selected port
-          <select
-            aria-label="Simulation port"
-            value={selectedPort?.id ?? ""}
-            onChange={(event) => onSelectPort(event.target.value)}
-          >
-            {ports.map((port) => (
-              <option key={port.id} value={port.id}>
-                Port {port.id}
-                {port.teamNumber
-                  ? ` · Team ${port.teamNumber}`
-                  : " · onboarding"}
-              </option>
-            ))}
-          </select>
-        </label>
-        <div className="lab-toggle-row">
-          <button
-            className={`lab-toggle ${enabled ? "active" : ""}`}
-            disabled={working || !selectedPort}
-            onClick={() => {
-              if (selectedPort)
-                void patchPort(
-                  { enabled: !enabled },
-                  { ...selectedPort, enabled: !enabled },
-                );
-            }}
-          >
-            <i /> Admin {enabled ? "enabled" : "disabled"}
-          </button>
-          <button
-            className={`lab-toggle ${linkUp ? "active" : ""}`}
-            disabled={working || !selectedPort}
-            onClick={() => {
-              if (selectedPort)
-                void patchPort(
-                  { linkUp: !linkUp },
-                  { ...selectedPort, linkUp: !linkUp },
-                );
-            }}
-          >
-            <i /> Physical link {linkUp ? "up" : "down"}
-          </button>
-        </div>
-        <div className="lab-fields">
-          <label className="lab-label">
-            Learn MAC
-            <input
-              aria-label="MAC address"
-              value={mac}
-              onChange={(event) => setMac(event.target.value)}
-              placeholder="AA:BB:CC:DD:EE:FF"
-            />
-          </label>
-          <label className="lab-label">
-            VLAN
-            <input
-              aria-label="VLAN ID"
-              inputMode="numeric"
-              value={vlanId}
-              onChange={(event) => setVlanId(event.target.value)}
-            />
-          </label>
-        </div>
-        <div className="lab-action-row">
-          <button
-            className="button secondary"
-            disabled={working || !selectedPort}
-            onClick={() => {
-              if (selectedPort)
-                void patchPort(
-                  { mac, vlanId: Number(vlanId) },
-                  {
-                    ...selectedPort,
-                    macs: [...(selectedPort.macs ?? []), mac],
-                    linkUp: true,
-                  },
-                );
-            }}
-          >
-            <Icon name="plus" size={14} /> Learn MAC
-          </button>
-          <button
-            className="button secondary"
-            disabled={working || !selectedPort}
-            onClick={() => {
-              if (selectedPort)
-                void patchPort(
-                  { clearMacs: true },
-                  { ...selectedPort, macs: [] },
-                );
-            }}
-          >
-            Clear learned MACs
-          </button>
-        </div>
-      </div>
-      <div className="lab-section">
-        <div className="lab-section-head">
-          <span className="eyebrow">DHCP LEASE</span>
-          <span className="muted">Correlate IP → MAC → port</span>
-        </div>
-        <div className="lab-fields">
-          <label className="lab-label">
-            Client IP
-            <input
-              aria-label="Client IP address"
-              value={ip}
-              onChange={(event) => setIp(event.target.value)}
-            />
-          </label>
-          <label className="lab-label">
-            MAC
-            <input
-              aria-label="Lease MAC address"
-              value={mac}
-              onChange={(event) => setMac(event.target.value)}
-            />
-          </label>
-        </div>
+      <label className="field">
+        Port
+        <select
+          value={selectedPort?.id ?? ""}
+          onChange={(event) => onSelectPort(event.target.value)}
+        >
+          {ports.map((port) => (
+            <option key={port.id} value={port.id}>
+              {port.id}
+              {port.teamNumber ? ` · ${port.teamNumber}` : ""}
+            </option>
+          ))}
+        </select>
+      </label>
+      <div className="lab-row">
         <button
-          className="button secondary full"
-          disabled={working}
-          onClick={async () => {
-            const lease = { ip, mac, vlanId: Number(vlanId) };
-            try {
-              const created = await api.simulator.createLease(lease);
-              setFallbackLeases((current) => [
-                ...current.filter((item) => item.ip !== ip),
-                created,
-              ]);
-              await onRefresh();
-              await refreshSimulation();
-              onToast(`DHCP lease ${ip} added.`);
-            } catch {
-              if (usingDemo)
-                setFallbackLeases((current) => [
-                  ...current.filter((item) => item.ip !== ip),
-                  lease,
-                ]);
-              onToast(
-                usingDemo
-                  ? "Lease added to local simulation."
-                  : "Lease update failed; state was not changed.",
+          className={`chip ${enabled ? "on" : ""}`}
+          disabled={working || !selectedPort}
+          onClick={() => {
+            if (selectedPort)
+              void patchPort(
+                { enabled: !enabled },
+                { ...selectedPort, enabled: !enabled },
               );
-            }
           }}
         >
-          Add / update lease
+          {enabled ? "Enabled" : "Disabled"}
         </button>
-        {leases.length > 0 && (
-          <div className="lease-list">
-            {leases.map((lease) => (
-              <div className="lease-row" key={lease.ip}>
-                <code>{lease.ip}</code>
-                <span>{lease.mac}</span>
-                <button
-                  aria-label={`Delete lease ${lease.ip}`}
-                  onClick={async () => {
-                    try {
-                      await api.simulator.deleteLease(lease.ip);
-                      if (usingDemo)
-                        setFallbackLeases((current) =>
-                          current.filter((item) => item.ip !== lease.ip),
-                        );
-                      else {
-                        await onRefresh();
-                        await refreshSimulation();
-                      }
-                    } catch {
-                      if (usingDemo)
-                        setFallbackLeases((current) =>
-                          current.filter((item) => item.ip !== lease.ip),
-                        );
-                      onToast(
-                        usingDemo
-                          ? "Lease removed from local simulation."
-                          : "Lease delete failed; state was not changed.",
-                      );
-                    }
-                  }}
-                >
-                  ×
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-      <div className="lab-section">
-        <div className="lab-section-head">
-          <span className="eyebrow">ACCESS POINT</span>
-          <span className="muted">VH-113 station simulation</span>
-        </div>
-        <div className="ap-control-row">
-          <label className="lab-label inline">
-            Slot
-            <select
-              aria-label="Access point station slot"
-              value={slotId}
-              onChange={(event) => setSlotId(event.target.value)}
-            >
-              {(slotIds.length
-                ? slotIds
-                : ["slot-1", "slot-2", "slot-3", "slot-4", "slot-5", "slot-6"]
-              ).map((slot) => {
-                const station = stations.find((item) => item.slotId === slot);
-                return (
-                  <option key={slot} value={slot}>
-                    {slot}
-                    {station?.configuration
-                      ? ` · Team ${station.configuration.teamNumber}`
-                      : " · free"}
-                  </option>
-                );
-              })}
-            </select>
-          </label>
-          <span className={`slot-state ${selectedStation?.state ?? "unknown"}`}>
-            {selectedStation?.state ?? "state unavailable"}
-          </span>
-        </div>
-        <div className="lab-fields">
-          <label className="lab-label">
-            Association
-            <select
-              aria-label="Robot association state"
-              value={associated ? "associated" : "disconnected"}
-              onChange={(event) =>
-                setAssociated(event.target.value === "associated")
-              }
-            >
-              <option value="associated">Robot associated</option>
-              <option value="disconnected">Disconnected</option>
-            </select>
-          </label>
-          <label className="lab-label">
-            Signal
-            <input
-              aria-label="Signal strength dBm"
-              value={signalDbm}
-              onChange={(event) => setSignalDbm(event.target.value)}
-            />
-          </label>
-        </div>
         <button
-          className="button secondary full"
-          disabled={working || !apOnline || !selectedStation?.configuration}
-          onClick={() => void applyStation()}
+          className={`chip ${linkUp ? "on" : ""}`}
+          disabled={working || !selectedPort}
+          onClick={() => {
+            if (selectedPort)
+              void patchPort(
+                { linkUp: !linkUp },
+                { ...selectedPort, linkUp: !linkUp },
+              );
+          }}
         >
-          Apply station state
+          Link {linkUp ? "up" : "down"}
         </button>
       </div>
-      <div className="lab-footer">
-        <span>
-          <i className="green-dot" /> State is ephemeral
-        </span>
-        <div>
-          <button
-            className="text-button"
-            disabled={working}
-            onClick={() => void reset("hardware")}
+      <div className="lab-grid">
+        <label className="field">
+          MAC
+          <input value={mac} onChange={(event) => setMac(event.target.value)} />
+        </label>
+        <label className="field">
+          VLAN
+          <input
+            inputMode="numeric"
+            value={vlanId}
+            onChange={(event) => setVlanId(event.target.value)}
+          />
+        </label>
+      </div>
+      <div className="lab-row">
+        <button
+          className="btn"
+          disabled={working || !selectedPort}
+          onClick={() => {
+            if (selectedPort)
+              void patchPort(
+                { mac, vlanId: Number(vlanId) },
+                {
+                  ...selectedPort,
+                  macs: [...(selectedPort.macs ?? []), mac],
+                  linkUp: true,
+                },
+              );
+          }}
+        >
+          Learn MAC
+        </button>
+        <button
+          className="btn"
+          disabled={working || !selectedPort}
+          onClick={() => {
+            if (selectedPort)
+              void patchPort(
+                { clearMacs: true },
+                { ...selectedPort, macs: [] },
+              );
+          }}
+        >
+          Clear MACs
+        </button>
+      </div>
+      <div className="lab-grid">
+        <label className="field">
+          IP
+          <input value={ip} onChange={(event) => setIp(event.target.value)} />
+        </label>
+        <label className="field">
+          MAC
+          <input value={mac} onChange={(event) => setMac(event.target.value)} />
+        </label>
+      </div>
+      <button
+        className="btn"
+        disabled={working}
+        onClick={async () => {
+          const lease = { ip, mac, vlanId: Number(vlanId) };
+          try {
+            const created = await api.simulator.createLease(lease);
+            setFallbackLeases((current) => [
+              ...current.filter((item) => item.ip !== ip),
+              created,
+            ]);
+            await onRefresh();
+            await refreshSimulation();
+          } catch {
+            if (usingDemo)
+              setFallbackLeases((current) => [
+                ...current.filter((item) => item.ip !== ip),
+                lease,
+              ]);
+            onToast(usingDemo ? "Lease saved locally." : "Lease failed.");
+          }
+        }}
+      >
+        Set lease
+      </button>
+      {leases.length > 0 && (
+        <ul className="lease-list">
+          {leases.map((lease) => (
+            <li key={lease.ip}>
+              <code>{lease.ip}</code>
+              <span>{lease.mac}</span>
+              <button
+                aria-label={`Delete lease ${lease.ip}`}
+                onClick={async () => {
+                  try {
+                    await api.simulator.deleteLease(lease.ip);
+                    if (usingDemo)
+                      setFallbackLeases((current) =>
+                        current.filter((item) => item.ip !== lease.ip),
+                      );
+                    else {
+                      await onRefresh();
+                      await refreshSimulation();
+                    }
+                  } catch {
+                    if (usingDemo)
+                      setFallbackLeases((current) =>
+                        current.filter((item) => item.ip !== lease.ip),
+                      );
+                    onToast("Lease delete failed.");
+                  }
+                }}
+              >
+                ×
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <div className="lab-grid">
+        <label className="field">
+          Slot
+          <select
+            value={slotId}
+            onChange={(event) => setSlotId(event.target.value)}
           >
-            Reset hardware
-          </button>
-          <button
-            className="text-button destructive"
-            disabled={working}
-            onClick={() => void reset("demo")}
+            {(slotIds.length
+              ? slotIds
+              : ["slot-1", "slot-2", "slot-3", "slot-4", "slot-5", "slot-6"]
+            ).map((slot) => {
+              const station = stations.find((item) => item.slotId === slot);
+              return (
+                <option key={slot} value={slot}>
+                  {slot}
+                  {station?.configuration
+                    ? ` · ${station.configuration.teamNumber}`
+                    : ""}
+                </option>
+              );
+            })}
+          </select>
+        </label>
+        <label className="field">
+          Radio
+          <select
+            value={associated ? "associated" : "disconnected"}
+            onChange={(event) =>
+              setAssociated(event.target.value === "associated")
+            }
           >
-            Reset demo data
-          </button>
-        </div>
+            <option value="associated">Associated</option>
+            <option value="disconnected">Disconnected</option>
+          </select>
+        </label>
+      </div>
+      <label className="field">
+        Signal
+        <input
+          value={signalDbm}
+          onChange={(event) => setSignalDbm(event.target.value)}
+        />
+      </label>
+      <button
+        className="btn"
+        disabled={working || !apOnline || !selectedStation?.configuration}
+        onClick={() => void applyStation()}
+      >
+        Apply radio
+      </button>
+      <div className="lab-foot">
+        <button
+          className="text"
+          disabled={working}
+          onClick={() => void reset("hardware")}
+        >
+          Reset hardware
+        </button>
+        <button
+          className="text danger"
+          disabled={working}
+          onClick={() => void reset("demo")}
+        >
+          Reset demo
+        </button>
       </div>
     </section>
   );
 }
 
-function CreateTeamModal({
-  config,
-  onClose,
-  onCreate,
-}: {
-  config: DashboardData["config"];
-  onClose: () => void;
-  onCreate: (teamNumber: number) => Promise<void>;
-}) {
-  const [teamNumber, setTeamNumber] = useState("");
-  const [error, setError] = useState("");
-  const [working, setWorking] = useState(false);
-  const submit = async (event: FormEvent) => {
-    event.preventDefault();
-    const number = Number(teamNumber);
-    if (!Number.isInteger(number) || number < 1 || number > 99999) {
-      setError("Enter a valid FRC team number.");
-      return;
-    }
-    setError("");
-    setWorking(true);
-    try {
-      await onCreate(number);
-      onClose();
-    } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "Unable to create team network.",
-      );
-    } finally {
-      setWorking(false);
-    }
-  };
-  return (
-    <div
-      className="modal-scrim"
-      role="presentation"
-      onMouseDown={(event) => {
-        if (event.currentTarget === event.target) onClose();
-      }}
-    >
-      <form className="modal" onSubmit={submit}>
-        <div className="modal-top">
-          <div>
-            <span className="eyebrow">NEW NETWORK</span>
-            <h2>Provision a team</h2>
-          </div>
-          <button type="button" className="icon-button" onClick={onClose}>
-            <Icon name="close" />
-          </button>
-        </div>
-        <p className="muted">
-          A VLAN will be reserved from the configured pool and held for this
-          team while the robot comes online.
-        </p>
-        <label className="form-label">
-          FRC team number
-          <input
-            autoFocus
-            inputMode="numeric"
-            value={teamNumber}
-            onChange={(event) => setTeamNumber(event.target.value)}
-            placeholder="e.g. 5712"
-          />
-        </label>
-        {error && <p className="form-error">{error}</p>}
-        <div className="allocation-preview">
-          <span>Available VLAN range</span>
-          <b>
-            {config.teamVlanStart}–{config.teamVlanEnd}
-          </b>
-        </div>
-        <div className="modal-actions">
-          <button type="button" className="button secondary" onClick={onClose}>
-            Cancel
-          </button>
-          <button className="button primary" disabled={working}>
-            {working ? "Provisioning…" : "Provision network"}
-            <Icon name="arrow" size={15} />
-          </button>
-        </div>
-      </form>
-    </div>
-  );
+function friendlyPortalError(error: unknown) {
+  const text = (error instanceof Error ? error.message : "").toLowerCase();
+  if (text.includes("not found") || text.includes("configured"))
+    return "Team not found.";
+  if (
+    text.includes("port") ||
+    text.includes("lease") ||
+    text.includes("device") ||
+    text.includes("mac")
+  )
+    return "Could not find this computer.";
+  return "Could not connect.";
 }
 
 function Portal({
@@ -1041,50 +830,31 @@ function Portal({
     const number = Number(team);
     if (!number) {
       setState("error");
-      setMessage("Enter your team number to continue.");
+      setMessage("Enter your team number.");
       return;
     }
     setState("working");
     try {
       const result = await onConnect(number);
-      if (!result)
-        throw new Error(
-          "That team has not been configured yet. Ask an event operator to provision it first.",
-        );
+      if (!result) throw new Error("Team not found.");
       setState("success");
-      setMessage(
-        `Port handoff complete for Team ${number}. Your laptop is joining VLAN ${result.vlanId}.`,
-      );
+      setMessage("Connected.");
     } catch (error) {
       setState("error");
-      setMessage(
-        error instanceof Error ? error.message : "Unable to complete handoff.",
-      );
+      setMessage(friendlyPortalError(error));
     }
   };
   return (
-    <main className="portal-page">
-      <div className="portal-noise" />
-      <header className="portal-header">
-        <span className="brand-mark">FM</span>
-        <span>FIELD MANAGER</span>
-        <span className="portal-badge">
-          <i /> Practice network
-        </span>
+    <main className="portal">
+      <div className="portal-grid" />
+      <header className="portal-bar">
+        <span className="mark">FM</span>
+        Field Manager
       </header>
-      <section className="portal-content">
-        <span className="eyebrow">ETHERNET ONBOARDING</span>
-        <h1>
-          Connect to your
-          <br />
-          <em>robot network.</em>
-        </h1>
-        <p>
-          Enter your FRC team number. We’ll identify this cable and move it into
-          your isolated team network.
-        </p>
-        <form className="portal-form" onSubmit={submit}>
-          <label>
+      <section className="portal-body">
+        <h1>Connect</h1>
+        <form onSubmit={submit}>
+          <label className="field">
             Team number
             <input
               autoFocus
@@ -1094,48 +864,27 @@ function Portal({
               placeholder="5712"
             />
           </label>
-          <button
-            className="button primary large"
-            disabled={state === "working"}
-          >
-            {state === "working" ? "Connecting…" : "Connect to team"}
-            <Icon name="arrow" size={18} />
+          <button className="btn accent lg" disabled={state === "working"}>
+            {state === "working" ? "Connecting…" : "Join"}
+            <Icon name="arrow" size={16} />
           </button>
         </form>
-        {state !== "idle" && (
-          <div className={`portal-message ${state}`}>
-            <span className="message-icon">
-              {state === "success" ? "✓" : "!"}
-            </span>
-            <span>{message}</span>
-          </div>
-        )}
-        <div className="portal-foot">
-          <span>
-            <i className="green-dot" /> Link detected
-          </span>
-          <span>Need help? Find an event operator.</span>
-        </div>
+        {state !== "idle" && <p className={`note ${state}`}>{message}</p>}
       </section>
-      <footer className="portal-footer">
-        <span>Field Manager · Practice networks</span>
-        <a href="/">
-          Operator dashboard <Icon name="external" size={13} />
-        </a>
-      </footer>
     </main>
   );
 }
 
 export function App() {
   const isPortal = window.location.pathname.startsWith("/portal");
+  const showLab = new URLSearchParams(window.location.search).has("lab");
   const [data, setData] = useState<DashboardData>(demoData);
   const [usingDemo, setUsingDemo] = useState(false);
   const [loading, setLoading] = useState(true);
   const [selectedPortId, setSelectedPortId] = useState<string>();
+  const [selectedTeamId, setSelectedTeamId] = useState<string>();
   const [modalOpen, setModalOpen] = useState(false);
   const [toast, setToast] = useState("");
-  const [activeNav, setActiveNav] = useState("Overview");
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
@@ -1155,16 +904,26 @@ export function App() {
   }, [refresh]);
   useEffect(() => {
     if (!toast) return;
-    const timer = window.setTimeout(() => setToast(""), 3500);
+    const timer = window.setTimeout(() => setToast(""), 2800);
     return () => window.clearTimeout(timer);
   }, [toast]);
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      setSelectedPortId(undefined);
+      setSelectedTeamId(undefined);
+      setModalOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
   const switchInfo = data.switches[0];
   const allPorts = switchInfo?.ports ?? [];
   const selectedPort = selectedPortId
     ? allPorts.find((port) => port.id === selectedPortId)
     : undefined;
-  const selectedTeam = selectedPort?.teamNetworkId
-    ? data.teams.find((team) => team.id === selectedPort.teamNetworkId)
+  const selectedTeam = selectedTeamId
+    ? data.teams.find((team) => team.id === selectedTeamId)
     : undefined;
   const updatePort = (updated: SwitchPort) => {
     if (!switchInfo) return;
@@ -1202,7 +961,6 @@ export function App() {
             : team,
         ),
     }));
-    // The inspector is keyed by ID, so it re-reads the fresh port from state after every mutation.
   };
   const createTeam = async (teamNumber: number) => {
     if (!usingDemo) {
@@ -1229,7 +987,7 @@ export function App() {
         teams: [...current.teams, localTeam],
       }));
     }
-    setToast(`Team ${teamNumber} network is ready to configure.`);
+    setToast(`Team ${teamNumber} added.`);
   };
   const connectPortal = async (teamNumber: number) => {
     try {
@@ -1243,16 +1001,10 @@ export function App() {
     }
     const team = data.teams.find((item) => item.teamNumber === teamNumber);
     if (!team) return undefined;
-    setToast(`Portal handoff simulated for Team ${teamNumber}.`);
     return team;
   };
   const disconnectTeam = async (team: TeamNetwork) => {
-    if (
-      !window.confirm(
-        `Disconnect Team ${team.teamNumber} and return its ports to onboarding?`,
-      )
-    )
-      return;
+    if (!window.confirm(`Remove Team ${team.teamNumber}?`)) return;
     try {
       if (!usingDemo) await api.deleteTeam(team.id);
       setData((current) => ({
@@ -1260,339 +1012,176 @@ export function App() {
         teams: current.teams.filter((item) => item.id !== team.id),
       }));
       setSelectedPortId(undefined);
-      setToast(`Team ${team.teamNumber} was disconnected.`);
+      setSelectedTeamId(undefined);
+      setToast(`Team ${team.teamNumber} removed.`);
       if (!usingDemo) await refresh();
     } catch (error) {
       setToast(
-        error instanceof Error
-          ? error.message
-          : "Unable to disconnect the team network.",
+        error instanceof Error ? error.message : "Could not remove team.",
       );
     }
   };
-  const assignPort = (port: SwitchPort) => {
-    setSelectedPortId(port.id);
-  };
-  const connectedCount = allPorts.filter((port) => port.linkUp).length;
-  const onboardingClient = allPorts.find(
-    (port) =>
-      port.enabled &&
-      port.linkUp &&
-      !port.teamNetworkId &&
-      (port.role === "client" || port.role === "unused"),
-  );
-  const assignedLinkCount = allPorts.filter(
-    (port) => port.linkUp && port.teamNetworkId,
-  ).length;
-  const disabledPortCount = allPorts.filter((port) => !port.enabled).length;
-  const onlineCount = data.teams.filter(
+  const liveCount = data.teams.filter(
     (team) => team.status === "online",
   ).length;
-  const navItems = [
-    { label: "Overview", icon: "grid" },
-    { label: "Team networks", icon: "radio" },
-    { label: "Switch ports", icon: "port" },
-    { label: "Diagnostics", icon: "activity" },
-  ];
+  const apOnline = data.accessPoints.some((ap) => ap.online !== false);
   if (isPortal) return <Portal onConnect={connectPortal} />;
   return (
-    <div className="app-shell">
-      <aside className="sidebar">
+    <div className="shell">
+      <div className="glow" />
+      <div className="grid-bg" />
+      <header className="bar">
         <div className="brand">
-          <span className="brand-mark">FM</span>
-          <div>
-            <strong>
-              FIELD
-              <br />
-              MANAGER
-            </strong>
-            <small>NETWORK CONSOLE</small>
-          </div>
+          <span className="mark">FM</span>
+          <strong>Field Manager</strong>
         </div>
-        <div className="event-context">
-          <span className="eyebrow">ACTIVE FIELD</span>
-          <strong>Practice field A</strong>
-          <span className="muted">
-            <i className="green-dot" /> Local simulation
-          </span>
-        </div>
-        <nav>
-          {navItems.map((item) => (
-            <button
-              key={item.label}
-              className={activeNav === item.label ? "active" : ""}
-              onClick={() => setActiveNav(item.label)}
-            >
-              <Icon name={item.icon} size={17} />
-              <span>{item.label}</span>
-              {item.label === "Team networks" && <b>{data.teams.length}</b>}
+        <div className="bar-meta">
+          <span className={`pulse ${usingDemo ? "off" : ""}`} />
+          {usingDemo ? (
+            <button className="text" onClick={() => void refresh()}>
+              Offline
             </button>
-          ))}
-        </nav>
-        <div className="sidebar-bottom">
-          <a href="/portal" target="_blank">
-            <Icon name="external" size={15} /> Open captive portal
+          ) : (
+            <span>
+              {liveCount}/{data.teams.length} live
+            </span>
+          )}
+          {data.accessPoints.length > 0 && (
+            <span className={apOnline ? "live-copy" : "quiet"}>
+              {apOnline ? "AP" : "AP down"}
+            </span>
+          )}
+        </div>
+        <div className="bar-actions">
+          <a className="text" href="/portal" target="_blank" rel="noreferrer">
+            Portal
           </a>
           <button
-            onClick={() =>
-              setToast("Settings are managed by the field configuration.")
-            }
+            className="ghost"
+            onClick={() => void refresh()}
+            aria-label="Refresh"
           >
-            <Icon name="settings" size={16} /> Settings
+            <Icon name="refresh" />
           </button>
-          <div className="operator">
-            <span className="avatar">OP</span>
-            <span>
-              <strong>Event operator</strong>
-              <small>Administrator</small>
-            </span>
-            <span className="online-indicator" />
-          </div>
+          <button className="btn accent" onClick={() => setModalOpen(true)}>
+            <Icon name="plus" size={14} /> Team
+          </button>
         </div>
-      </aside>
-      <main className="workspace">
-        <header className="topbar">
-          <div className="crumbs">
-            <span>FIELD / PRACTICE A</span>
-            <span className="slash">/</span>
-            <strong>{activeNav.toUpperCase()}</strong>
+      </header>
+      <div className="workspace">
+        <aside className="rail">
+          <div className="rail-head">
+            <h1>Teams</h1>
+            <span>{data.teams.length}</span>
           </div>
-          <div className="top-actions">
-            <span className={`connection-chip ${usingDemo ? "demo" : ""}`}>
-              <i />
-              {usingDemo ? "Demo snapshot" : "API connected"}
-            </span>
-            <button
-              className="icon-button"
-              onClick={() => void refresh()}
-              aria-label="Refresh data"
-            >
-              <Icon name="refresh" size={17} />
-            </button>
-            <span className="top-time">
-              {new Date().toLocaleTimeString([], {
-                hour: "2-digit",
-                minute: "2-digit",
-              })}
-            </span>
-          </div>
-        </header>
-        <div className="content">
-          <div className="page-intro">
-            <div>
-              <span className="eyebrow">
-                FIELD OPERATIONS ·{" "}
-                {new Date()
-                  .toLocaleDateString([], {
-                    month: "short",
-                    day: "numeric",
-                    year: "numeric",
-                  })
-                  .toUpperCase()}
-              </span>
-              <h1>Network overview</h1>
-              <p>
-                Keep each team’s robot network reachable, isolated, and ready
-                for practice.
-              </p>
-            </div>
-            <button
-              className="button primary"
-              onClick={() => setModalOpen(true)}
-            >
-              <Icon name="plus" size={16} /> Provision team
-            </button>
-          </div>
-          {usingDemo && (
-            <div className="demo-banner">
-              <span>
-                <i className="spark" /> You’re viewing the simulated field
-              </span>
-              <span>
-                API unavailable — changes stay in this browser session.
-              </span>
-              <button onClick={() => void refresh()}>Retry connection</button>
-            </div>
-          )}
-          <section className="metrics">
-            <div>
-              <span className="eyebrow">TEAM NETWORKS</span>
-              <strong>{data.teams.length.toString().padStart(2, "0")}</strong>
-              <span className="metric-note">
-                <i className="green-dot" /> {onlineCount} online
-              </span>
-            </div>
-            <div>
-              <span className="eyebrow">ACTIVE LINKS</span>
-              <strong>{connectedCount.toString().padStart(2, "0")}</strong>
-              <span className="metric-note">
-                of {allPorts.length} switch ports
-              </span>
-            </div>
-            <div>
-              <span className="eyebrow">ONBOARDING</span>
-              <strong>
-                {allPorts
-                  .filter((port) => !port.teamNumber)
-                  .length.toString()
-                  .padStart(2, "0")}
-              </strong>
-              <span className="metric-note">ports available</span>
-            </div>
-            <div>
-              <span className="eyebrow">VLAN POOL</span>
-              <strong>
-                {data.config.teamVlanStart}–{data.config.teamVlanEnd}
-              </strong>
-              <span className="metric-note">
-                {data.config.onboardingVlan} onboarding
-              </span>
-            </div>
-          </section>
-          <div className="section-heading">
-            <div>
-              <span className="eyebrow">ISOLATED NETWORKS</span>
-              <h2>Team networks</h2>
-            </div>
-            <button
-              className="text-button"
-              onClick={() => setActiveNav("Team networks")}
-            >
-              View all <Icon name="arrow" size={15} />
-            </button>
-          </div>
-          <div className="team-cards">
+          <ul className="team-list">
             {data.teams.map((team) => (
-              <TeamCard
-                key={team.id}
-                team={team}
-                selected={selectedTeam?.id === team.id}
-                onDisconnect={() => void disconnectTeam(team)}
-                onSelect={() => {
-                  const port = allPorts.find(
-                    (item) => item.teamNetworkId === team.id,
-                  );
-                  if (port) setSelectedPortId(port.id);
-                }}
-              />
+              <li key={team.id}>
+                <button
+                  className={`team ${selectedTeam?.id === team.id ? "on" : ""}`}
+                  onClick={() => {
+                    setSelectedTeamId(team.id);
+                    setSelectedPortId(undefined);
+                  }}
+                >
+                  <strong>{team.teamNumber}</strong>
+                  <Status status={team.status} />
+                </button>
+                <button
+                  className="team-x"
+                  aria-label={`Remove Team ${team.teamNumber}`}
+                  onClick={() => void disconnectTeam(team)}
+                >
+                  <Icon name="close" size={12} />
+                </button>
+              </li>
             ))}
-            <button className="add-card" onClick={() => setModalOpen(true)}>
-              <span>
-                <Icon name="plus" size={19} />
-              </span>
-              <strong>Add team network</strong>
-              <small>Reserve the next available VLAN</small>
-            </button>
-          </div>
-          <div className="network-layout">
-            <div>
-              <div className="section-heading compact">
-                <div>
-                  <span className="eyebrow">SWITCH INVENTORY</span>
-                  <h2>Physical ports</h2>
-                </div>
-                <span className="muted">Click any port to inspect</span>
+          </ul>
+          {data.teams.length === 0 && <p className="quiet">No teams</p>}
+          <button className="add-team" onClick={() => setModalOpen(true)}>
+            <Icon name="plus" size={14} /> Add team
+          </button>
+        </aside>
+        <section className="deck">
+          {data.switches.map((item) => (
+            <div className="face" key={item.id}>
+              <div className="face-head">
+                <h2>{item.name}</h2>
+                <span>
+                  {item.ports.filter((port) => port.linkUp).length}/
+                  {item.ports.length} up
+                </span>
               </div>
-              {switchInfo && (
-                <SwitchRack
-                  switchInfo={switchInfo}
-                  selectedId={selectedPortId}
-                  onSelect={assignPort}
-                />
-              )}
-              <div className="recent-heading">
-                <span className="eyebrow">LIVE FIELD STATE</span>
-              </div>
-              <div className="activity-list">
-                <div>
-                  <span className="activity-icon orange">
-                    <Icon name="port" size={15} />
-                  </span>
-                  <p>
-                    {onboardingClient ? (
-                      <>
-                        <strong>Port {onboardingClient.id}</strong> has an
-                        onboarding client
-                      </>
+              <div className="ports" aria-label="Switch ports">
+                {item.ports.map((port) => (
+                  <button
+                    key={port.id}
+                    className={[
+                      "port",
+                      port.linkUp ? "up" : "",
+                      port.enabled ? "" : "off",
+                      port.teamNumber ? "assigned" : "",
+                      selectedPortId === port.id ? "sel" : "",
+                      selectedTeamId && port.teamNetworkId === selectedTeamId
+                        ? "focus"
+                        : "",
+                    ]
+                      .filter(Boolean)
+                      .join(" ")}
+                    onClick={() => {
+                      setSelectedPortId(port.id);
+                      setSelectedTeamId(port.teamNetworkId);
+                    }}
+                    aria-label={`Port ${port.id}`}
+                  >
+                    <span>{port.id}</span>
+                    {port.teamNumber ? (
+                      <b>{port.teamNumber}</b>
                     ) : (
-                      <strong>No onboarding client detected</strong>
+                      <i className={port.linkUp ? "lit" : ""} />
                     )}
-                    <span>VLAN {data.config.onboardingVlan}</span>
-                  </p>
-                  <StatusDot
-                    status={onboardingClient ? "onboarding" : "link-down"}
-                    label={onboardingClient ? "Ready" : "Idle"}
-                  />
-                </div>
-                <div>
-                  <span className="activity-icon green">
-                    <Icon name="wifi" size={15} />
-                  </span>
-                  <p>
-                    <strong>{onlineCount} robot radios</strong> currently
-                    associated
-                    <span>{data.accessPoints.length} access point online</span>
-                  </p>
-                  <StatusDot
-                    status={onlineCount > 0 ? "online" : "waiting-for-robot"}
-                    label={onlineCount > 0 ? "Online" : "Waiting"}
-                  />
-                </div>
-                <div>
-                  <span className="activity-icon blue">
-                    <Icon name="refresh" size={15} />
-                  </span>
-                  <p>
-                    <strong>{assignedLinkCount} assigned links</strong> active
-                    <span>
-                      {disabledPortCount} ports administratively disabled
-                    </span>
-                  </p>
-                  <StatusDot
-                    status={disabledPortCount > 0 ? "link-down" : "online"}
-                    label={disabledPortCount > 0 ? "Attention" : "Healthy"}
-                  />
-                </div>
+                  </button>
+                ))}
               </div>
             </div>
-            {selectedPort && switchInfo && (
-              <PortInspector
-                port={selectedPort}
-                teams={data.teams}
-                switchId={switchInfo.id}
-                onClose={() => setSelectedPortId(undefined)}
-                onUpdate={updatePort}
-                onRefresh={refresh}
-                usingDemo={usingDemo}
-              />
-            )}
-          </div>
-          <SimulationLab
-            data={data}
-            switchInfo={switchInfo}
-            selectedPortId={selectedPortId}
-            onSelectPort={setSelectedPortId}
-            onUpdatePort={updatePort}
-            onRefresh={refresh}
-            onToast={setToast}
-            usingDemo={usingDemo}
-          />
-        </div>
-        {modalOpen && (
-          <CreateTeamModal
-            config={data.config}
-            onClose={() => setModalOpen(false)}
-            onCreate={createTeam}
-          />
-        )}
-        {toast && (
-          <div className="toast">
-            <span>✓</span>
-            {toast}
-          </div>
-        )}
-        {loading && <div className="loading-bar" />}
-      </main>
+          ))}
+          {showLab && (
+            <SimulationLab
+              data={data}
+              switchInfo={switchInfo}
+              selectedPortId={selectedPortId}
+              onSelectPort={setSelectedPortId}
+              onUpdatePort={updatePort}
+              onRefresh={refresh}
+              onToast={setToast}
+              usingDemo={usingDemo}
+            />
+          )}
+        </section>
+        <Inspector
+          port={selectedPort}
+          team={selectedPort ? undefined : selectedTeam}
+          teams={data.teams}
+          switchId={switchInfo?.id}
+          ports={allPorts}
+          onClose={() => {
+            setSelectedPortId(undefined);
+            setSelectedTeamId(undefined);
+          }}
+          onUpdate={updatePort}
+          onRefresh={refresh}
+          onDisconnect={(team) => void disconnectTeam(team)}
+          usingDemo={usingDemo}
+        />
+      </div>
+      {modalOpen && (
+        <CreateTeamModal
+          onClose={() => setModalOpen(false)}
+          onCreate={createTeam}
+        />
+      )}
+      {toast && <div className="toast">{toast}</div>}
+      {loading && <div className="loader" />}
     </div>
   );
 }
