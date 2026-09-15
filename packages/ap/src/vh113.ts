@@ -23,6 +23,14 @@ const VLAN_BANKS = [
   [40, 50, 60],
   [70, 80, 90],
 ] as const;
+const PRACTICE_BASELINE_SSIDS: Record<SlotId, string> = {
+  red1: "1",
+  red2: "2",
+  red3: "3",
+  blue1: "4",
+  blue2: "5",
+  blue3: "6",
+};
 
 type SlotId = (typeof VH113_SLOT_IDS)[number];
 type VlanBank = "10_20_30" | "40_50_60" | "70_80_90";
@@ -247,6 +255,15 @@ export class VH113AccessPoint implements AccessPoint {
     const remote = status.stationStatuses[slot];
     if (status.status === "ERROR")
       return { slotId, state: "error", message: "VH-113 reported ERROR" };
+    if (isPracticeBaseline(status)) {
+      if (this.configurations.has(slot))
+        return {
+          slotId,
+          state: "error",
+          message: "VH-113 reverted to its factory Practice AP baseline",
+        };
+      return { slotId, state: "available" };
+    }
     if (!remote)
       return status.status === "ACTIVE"
         ? { slotId, state: "available" }
@@ -329,6 +346,7 @@ export class VH113AccessPoint implements AccessPoint {
     status: VH113Status,
     changingSlot: SlotId,
   ): void {
+    if (isPracticeBaseline(status)) return;
     const unknown = VH113_SLOT_IDS.filter(
       (slotId) =>
         slotId !== changingSlot &&
@@ -509,6 +527,22 @@ export class VH113AccessPoint implements AccessPoint {
     this.writeQueue = result.catch(() => undefined);
     return result;
   }
+}
+
+function isPracticeBaseline(status: VH113Status): boolean {
+  return (
+    status.status === "ACTIVE" &&
+    /_AP_PRACTICE_/i.test(status.version ?? "") &&
+    VH113_SLOT_IDS.every((slotId) => {
+      const station = status.stationStatuses[slotId];
+      return (
+        station !== null &&
+        station.ssid === PRACTICE_BASELINE_SSIDS[slotId] &&
+        !station.isLinked &&
+        station.macAddress === ""
+      );
+    })
+  );
 }
 
 function banksForAlliance(

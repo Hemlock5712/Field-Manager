@@ -63,7 +63,83 @@ function fakeApi(initial = status()) {
   return { fetch, requests, getStatus: () => current };
 }
 
+function practiceBaseline() {
+  return status({
+    channel: 13,
+    channelBandwidth: "40MHz",
+    version: "VH-109_AP_PRACTICE_1.2.9-02102025",
+    stationStatuses: Object.fromEntries(
+      slots.map((slot, index) => [
+        slot,
+        {
+          ssid: String(index + 1),
+          hashedWpaKey: `hash-${slot}`,
+          wpaKeySalt: `salt-${slot}`,
+          isLinked: false,
+          macAddress: "",
+          signalDbm: 0,
+        },
+      ]),
+    ),
+  });
+}
+
 describe("VH113AccessPoint", () => {
+  it("treats the inactive Practice firmware six-SSID baseline as empty", async () => {
+    const api = fakeApi(practiceBaseline());
+    const ap = new VH113AccessPoint({
+      info: { id: "ap-1", name: "Field AP", managementAddress: "10.0.100.2" },
+      fetch: api.fetch,
+      pollIntervalMs: 0,
+    });
+
+    await expect(ap.getStationStatus("red1")).resolves.toMatchObject({
+      state: "available",
+    });
+    await expect(ap.getStationStatus("blue3")).resolves.toMatchObject({
+      state: "available",
+    });
+
+    await ap.configureTeam("red1", {
+      teamNumber: 5712,
+      ssid: "FRC-5712",
+      wpaKey: "SecureKey123",
+      vlanId: 10,
+    });
+    expect(api.requests).toHaveLength(1);
+    expect(api.requests[0]?.body).toMatchObject({
+      stationConfigurations: {
+        red1: { ssid: "FRC-5712", wpaKey: "SecureKey123" },
+      },
+    });
+  });
+
+  it("does not treat a partially matching Practice profile as empty", async () => {
+    const baseline = practiceBaseline();
+    const stationStatuses = baseline.stationStatuses as Record<
+      string,
+      Record<string, unknown>
+    >;
+    stationStatuses.red2 = { ...stationStatuses.red2, ssid: "FRC-862" };
+    const api = fakeApi(baseline);
+    const ap = new VH113AccessPoint({
+      info: { id: "ap-1", name: "Field AP", managementAddress: "10.0.100.2" },
+      fetch: api.fetch,
+    });
+
+    await expect(ap.getStationStatus("red1")).resolves.toMatchObject({
+      state: "configured",
+    });
+    await expect(
+      ap.configureTeam("blue1", {
+        teamNumber: 5712,
+        ssid: "FRC-5712",
+        wpaKey: "SecureKey123",
+        vlanId: 40,
+      }),
+    ).rejects.toBeInstanceOf(AccessPointOperationError);
+  });
+
   it("reads firmware and normalizes configured and associated stations", async () => {
     const api = fakeApi(
       status({
