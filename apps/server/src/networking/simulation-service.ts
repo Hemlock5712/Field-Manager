@@ -309,7 +309,7 @@ export class SimulationService {
             : undefined;
         await accessPoint.configureTeam(team.accessPointSlot, {
           teamNumber: team.teamNumber,
-          ssid: `FRC-${team.teamNumber}`,
+          ssid: team.wirelessSsid ?? `FRC-${team.teamNumber}`,
           vlanId: team.vlanId,
           ...(wpaKey ? { wpaKey } : {}),
         });

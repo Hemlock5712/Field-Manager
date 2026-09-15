@@ -35,11 +35,29 @@ The mock adapter is the reference behavior for local development. It should supp
 
 ### Extreme 5420M-48W-4YE
 
-`Extreme5420Switch` supports a 5420M-48W-4YE running **Switch Engine/ExtremeXOS**. It uses the vendor's HTTPS/HTTP Basic authenticated JSON-RPC `cli` method at `/jsonrpc/`; it does not support a switch booted into Fabric Engine/VOSS. The web interface/JSON-RPC service must be enabled and HTTPS should use a certificate trusted by the Field Manager host.
+`Extreme5420Switch` supports a 5420M-48W-4YE running **Switch Engine/ExtremeXOS**. It uses the vendor's HTTPS/HTTP Basic authenticated JSON-RPC `cli` method at `/jsonrpc/`. The web interface/JSON-RPC service must be enabled and HTTPS should use a certificate trusted by the Field Manager host.
 
 The adapter implements port detail and VID readback, access and tagged/native VLAN replacement, port enable/disable and bounce, FDB lookup/flush, model verification, and optional `save configuration primary`. Writes are serialized and verified by readback. Configuration persistence is off by default because saving every short-lived practice-field assignment increases flash writes; enable it only when assignments must survive a switch restart.
 
 The default port inventory is the 48 copper plus four uplink data ports (`1` through `52`). Stacked systems must supply their actual port IDs (for example `1:1`) and application roles. The adapter creates missing VLANs as `FM-<VID>` but never deletes VLANs. Test the exact installed Switch Engine release in a lab before field use.
+
+`Extreme5420FabricEngineSwitch` supports the same chassis running **Fabric
+Engine/VOSS**. It uses a password-authenticated interactive SSH session, pins
+the switch's OpenSSH SHA256 host-key fingerprint, and disables CLI paging for
+each session. Its defaults are ports `1/1` through `1/52` and VLAN IDs 1-4059.
+It maps access/native/tagged VLAN behavior to Fabric Engine's VLAN membership,
+802.1Q encapsulation, default VLAN, and frame-discard controls.
+
+The Fabric Engine adapter reads physical state, membership, and the VLAN FDB;
+serializes and verifies writes; clears learned MACs individually on a port;
+and optionally runs `save config`. Set `FM_SWITCH_OS=fabric-engine`, use an
+`ssh://` management URL, and configure `FM_SWITCH_SSH_HOST_KEY_SHA256`.
+`FM_SWITCH_OS=voss` is accepted as an alias. As with the Switch Engine adapter,
+the application owns only explicitly listed ports and never deletes VLANs.
+VOSS 8.4.0 can be reached only when
+`FM_SWITCH_ALLOW_LEGACY_SSH_KEX=true`; this appends group14-sha1 for that switch
+without enabling the weaker group1 method. Keep the option false on releases
+that offer a SHA-2 key exchange.
 
 ## Access-point contract
 

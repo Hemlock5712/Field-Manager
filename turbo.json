@@ -1,7 +1,13 @@
 {
   "$schema": "https://turborepo.dev/schema.json",
   "ui": "tui",
-  "globalEnv": ["FIELD_MANAGER_DB", "HOST", "NODE_ENV", "PORT"],
+  "globalEnv": [
+    "FIELD_MANAGER_DB",
+    "FIELD_MANAGER_MODE",
+    "HOST",
+    "NODE_ENV",
+    "PORT"
+  ],
   "tasks": {
     "build": {
       "dependsOn": ["^build"],

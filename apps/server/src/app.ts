@@ -56,11 +56,15 @@ const resetSimulationSchema = z.object({
   scope: z.enum(["hardware", "demo"]).optional(),
 });
 
-function clientIp(request: FastifyRequest, supplied?: string): string {
+function clientIp(
+  request: FastifyRequest,
+  supplied: string | undefined,
+  allowSimulationOverrides: boolean,
+): string {
   const simulated = request.headers["x-simulated-client-ip"];
   return (
-    supplied ??
-    (typeof simulated === "string"
+    (allowSimulationOverrides ? supplied : undefined) ??
+    (allowSimulationOverrides && typeof simulated === "string"
       ? simulated
       : request.ip.replace(/^::ffff:/, ""))
   );
@@ -78,7 +82,10 @@ function publicStation(
 }
 
 export async function buildApp(context: AppContext): Promise<FastifyInstance> {
-  const app = Fastify({ logger: process.env.NODE_ENV !== "test" });
+  const app = Fastify({
+    logger: process.env.NODE_ENV !== "test",
+    trustProxy: context.mode === "production" ? ["127.0.0.1"] : false,
+  });
   await app.register(cors, { origin: true });
 
   app.setErrorHandler((error, _request, reply) => {
@@ -132,7 +139,7 @@ export async function buildApp(context: AppContext): Promise<FastifyInstance> {
     ]);
     return {
       status: hardware.every((item) => item.available) ? "ok" : "degraded",
-      mode: "mock",
+      mode: context.mode,
       hardware,
     };
   });
@@ -293,92 +300,95 @@ export async function buildApp(context: AppContext): Promise<FastifyInstance> {
     const query = z
       .object({ ip: z.union([z.ipv4(), z.ipv6()]).optional() })
       .parse(request.query);
-    return context.portal.getSession(clientIp(request, query.ip));
+    return context.portal.getSession(
+      clientIp(request, query.ip, context.mode === "mock"),
+    );
   });
   app.post("/api/portal/connect", async (request) => {
     const body = portalConnectSchema.parse(request.body);
-    return context.portal.connect(clientIp(request, body.ip), body.teamNumber);
+    return context.portal.connect(
+      clientIp(request, body.ip, context.mode === "mock"),
+      body.teamNumber,
+    );
   });
 
-  app.get("/api/dev/state", async () => context.simulation.state());
-  app.post<{ Params: { id: string } }>(
-    "/api/dev/switches/:id/availability",
-    async (request) => {
-      const body = availabilitySchema.parse(request.body);
-      context.simulation.setSwitchAvailability(
-        request.params.id,
-        body.available,
-      );
-      return body;
-    },
-  );
-  app.post<{ Params: { id: string; portId: string } }>(
-    "/api/dev/switches/:id/ports/:portId",
-    async (request) => {
-      const body = portSimulationSchema.parse(request.body);
-      return context.simulation.simulatePort(
-        request.params.id,
-        request.params.portId,
-        body,
-      );
-    },
-  );
-  app.post<{ Params: { id: string } }>(
-    "/api/dev/access-points/:id/availability",
-    async (request) => {
-      const body = availabilitySchema.parse(request.body);
-      context.simulation.setAccessPointAvailability(
-        request.params.id,
-        body.available,
-      );
-      return body;
-    },
-  );
-  app.post<{ Params: { id: string; slotId: string } }>(
-    "/api/dev/access-points/:id/stations/:slotId",
-    async (request) => {
-      const body = stationSimulationSchema.parse(request.body);
-      return context.simulation.simulateStation(
-        request.params.id,
-        request.params.slotId,
-        body,
-      );
-    },
-  );
-  app.post("/api/dev/dhcp/leases", async (request, reply) => {
-    const lease = context.simulation.createLease(
-      dhcpLeaseSchema.parse(request.body),
+  if (context.simulation) {
+    const simulation = context.simulation;
+    app.get("/api/dev/state", async () => simulation.state());
+    app.post<{ Params: { id: string } }>(
+      "/api/dev/switches/:id/availability",
+      async (request) => {
+        const body = availabilitySchema.parse(request.body);
+        simulation.setSwitchAvailability(request.params.id, body.available);
+        return body;
+      },
     );
-    return reply.status(201).send(lease);
-  });
-  app.delete<{ Params: { ip: string } }>(
-    "/api/dev/dhcp/leases/:ip",
-    async (request, reply) => {
-      context.simulation.deleteLease(request.params.ip);
-      return reply.status(204).send();
-    },
-  );
-  app.post("/api/dev/failures", async (request) => {
-    const body = failureSimulationSchema.parse(request.body);
-    context.simulation.setFailure(
-      body.hardware,
-      body.operation,
-      body.message ?? undefined,
-      body.id,
+    app.post<{ Params: { id: string; portId: string } }>(
+      "/api/dev/switches/:id/ports/:portId",
+      async (request) => {
+        const body = portSimulationSchema.parse(request.body);
+        return simulation.simulatePort(
+          request.params.id,
+          request.params.portId,
+          body,
+        );
+      },
     );
-    return {
-      hardware: body.hardware,
-      operation: body.operation,
-      enabled: body.message !== null && body.message !== undefined,
-    };
-  });
-  app.post("/api/dev/reset", async (request) => {
-    const body = resetSimulationSchema.parse(request.body ?? {});
-    const mode =
-      body.mode ??
-      (body.scope === "demo" ? "seeded-demo" : "hardware-to-desired");
-    return context.simulation.reset(mode);
-  });
+    app.post<{ Params: { id: string } }>(
+      "/api/dev/access-points/:id/availability",
+      async (request) => {
+        const body = availabilitySchema.parse(request.body);
+        simulation.setAccessPointAvailability(
+          request.params.id,
+          body.available,
+        );
+        return body;
+      },
+    );
+    app.post<{ Params: { id: string; slotId: string } }>(
+      "/api/dev/access-points/:id/stations/:slotId",
+      async (request) => {
+        const body = stationSimulationSchema.parse(request.body);
+        return simulation.simulateStation(
+          request.params.id,
+          request.params.slotId,
+          body,
+        );
+      },
+    );
+    app.post("/api/dev/dhcp/leases", async (request, reply) => {
+      const lease = simulation.createLease(dhcpLeaseSchema.parse(request.body));
+      return reply.status(201).send(lease);
+    });
+    app.delete<{ Params: { ip: string } }>(
+      "/api/dev/dhcp/leases/:ip",
+      async (request, reply) => {
+        simulation.deleteLease(request.params.ip);
+        return reply.status(204).send();
+      },
+    );
+    app.post("/api/dev/failures", async (request) => {
+      const body = failureSimulationSchema.parse(request.body);
+      simulation.setFailure(
+        body.hardware,
+        body.operation,
+        body.message ?? undefined,
+        body.id,
+      );
+      return {
+        hardware: body.hardware,
+        operation: body.operation,
+        enabled: body.message !== null && body.message !== undefined,
+      };
+    });
+    app.post("/api/dev/reset", async (request) => {
+      const body = resetSimulationSchema.parse(request.body ?? {});
+      const mode =
+        body.mode ??
+        (body.scope === "demo" ? "seeded-demo" : "hardware-to-desired");
+      return simulation.reset(mode);
+    });
+  }
 
   return app;
 }

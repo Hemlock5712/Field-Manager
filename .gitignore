@@ -40,3 +40,4 @@ yarn-error.log*
 *.sqlite
 *.sqlite-shm
 *.sqlite-wal
+deploy/raspberry-pi/secrets/*.txt

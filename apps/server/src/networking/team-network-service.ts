@@ -54,6 +54,7 @@ export class TeamNetworkService {
     const id = `team-${input.teamNumber}-${crypto.randomUUID().slice(0, 8)}`;
     const credentialRef = `team/${id}/wireless-key`;
     const wpaKey = input.wpaKey ?? generatedWpaKey(input.teamNumber);
+    const wirelessSsid = input.ssid ?? `FRC-${input.teamNumber}`;
     await this.credentials.put(credentialRef, wpaKey);
 
     const record = this.repository.runInTransaction(() => {
@@ -64,6 +65,7 @@ export class TeamNetworkService {
         vlanId,
         accessPointId: selected.id,
         accessPointSlot: selected.slotId,
+        wirelessSsid,
         credentialRef,
         status: "provisioning",
         createdAt: now,
@@ -76,7 +78,7 @@ export class TeamNetworkService {
     try {
       await selected.accessPoint.configureTeam(selected.slotId, {
         teamNumber: input.teamNumber,
-        ssid: input.ssid ?? `FRC-${input.teamNumber}`,
+        ssid: wirelessSsid,
         wpaKey,
         vlanId: record.vlanId,
       });

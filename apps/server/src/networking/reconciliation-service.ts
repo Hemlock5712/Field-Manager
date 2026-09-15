@@ -76,6 +76,7 @@ export class NetworkHealthService {
         if (
           !actual ||
           actual.teamNumber !== team.teamNumber ||
+          actual.ssid !== (team.wirelessSsid ?? `FRC-${team.teamNumber}`) ||
           actual.vlanId !== team.vlanId
         ) {
           issues.push({

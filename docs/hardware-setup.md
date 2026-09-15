@@ -5,23 +5,20 @@ one Vivid Hosting VH-113 field access point for FRC Practice Network. Complete
 the work on an isolated bench before connecting team equipment.
 
 > [!IMPORTANT]
-> The real switch and AP adapters are implemented, but the server currently
-> constructs `MockManagedSwitch`, `MockAccessPoint`, and
-> `MockDhcpLeaseProvider` in `apps/server/src/context.ts`. Do not treat the
-> current server startup as a production-hardware profile. Live use still
-> requires explicit production context wiring, a real DHCP lease provider, and
-> removal or disabling of `/api/dev` routes.
+> Production mode now uses the real switch/AP adapters and a read-only dnsmasq
+> lease provider. Use the reviewed Raspberry Pi deployment profile; it does not
+> register `/api/dev`. Commission on an isolated bench before field use.
 
 ## 1. Equipment and prerequisites
 
 Have these items ready:
 
-- an Extreme 5420M-48W-4YE booted into **Switch Engine/ExtremeXOS**, not Fabric
-  Engine/VOSS;
+- an Extreme 5420M-48W-4YE booted into either **Switch Engine/ExtremeXOS** or
+  **Fabric Engine/VOSS**;
 - a VH-113 running firmware that exposes `frc-radio-api`;
 - a Field Manager host with trusted access to both management endpoints;
-- DHCP, DNS, routing, and firewall infrastructure for the onboarding and team
-  VLANs;
+- the Raspberry Pi deployment profile for onboarding DHCP/DNS and the Practice
+  AP firmware for team-VLAN DHCP;
 - a switch console cable and a local copy of the known-good switch
   configuration;
 - an AP uplink cable and enough client/uplink cables for the planned topology;
@@ -29,8 +26,9 @@ Have these items ready:
 - an approved channel, channel width, and regulatory configuration for the
   event location.
 
-The application does not provide DHCP, DNS, routing, firewalling, ACLs, STP,
-LACP, or PoE control. Those remain infrastructure responsibilities.
+The application process does not implement DHCP. The supplied deployment runs
+dnsmasq beside it for onboarding VLAN 999 only. Routing, firewalling, ACLs,
+STP, LACP, and PoE control remain infrastructure responsibilities.
 
 ## 2. Freeze the field plan
 
@@ -77,7 +75,7 @@ Keep management paths and team-facing ports distinct.
 
 ```mermaid
 flowchart LR
-  operator["Operator / Field Manager host"] -->|"restricted management path"| sw["5420M-48W-4YE\nSwitch Engine"]
+  operator["Operator / Field Manager host"] -->|"restricted management path"| sw["5420M-48W-4YE\nSwitch Engine or Fabric Engine"]
   infra["DHCP, DNS, router, firewall"] -->|"reserved infrastructure trunk"| sw
   client["Test laptop, then team clients"] -->|"untagged onboarding or team VLAN"| sw
   sw -->|"AP trunk: native management, tagged active team VLANs"| ap["VH-113"]
@@ -99,14 +97,15 @@ available.
 
 ### 4.1 Establish console and management access
 
-1. Connect locally to the serial console. The documented Switch Engine console
-   settings are 115200 baud, 8 data bits, no parity, and 1 stop bit.
+1. Connect locally to the serial console at 115200 baud, 8 data bits, no
+   parity, and 1 stop bit.
 2. Log in, set unique administrator and failsafe credentials, and store them in
-   the approved secret manager. A factory Switch Engine login may initially
-   allow `admin` with a blank password; never leave it that way.
-3. Run `show version` and confirm the model and **Switch Engine** software.
-   Stop if the switch is running Fabric Engine/VOSS; this adapter cannot manage
-   that operating system.
+   the approved secret manager. Never leave a factory or blank password in
+   place.
+3. Identify the active personality: use `show version` on Switch Engine, or
+   `show sys-info` and `show software` on Fabric Engine/VOSS. Confirm the
+   chassis is a 5420M-48W-4YE and later select the same personality with
+   `FM_SWITCH_OS`.
 4. Assign the approved management address. For a named in-band VLAN, Switch
    Engine uses the following form:
 
@@ -114,12 +113,39 @@ available.
    configure vlan <management-vlan-name> ipaddress <address> <mask>
    ```
 
+   Fabric Engine can instead use its out-of-band management interface or a
+   VLAN Management Instance. A minimal in-band example is:
+
+   ```text
+   enable
+   configure terminal
+   vlan create 100 name FM-Mgmt type port-mstprstp 0
+   vlan create 999 name Onboarding type port-mstprstp 0
+   vlan members add 100 1/47 portmember
+   vlan members add 999 1/47 portmember
+   vlan members remove 1 1/47 portmember
+   interface GigabitEthernet 1/47
+   encapsulation dot1q
+   untagged-frames-discard
+   no untag-port-default-vlan
+   no shutdown
+   exit
+   mgmt vlan 100
+   ip address 10.0.100.2/24
+   enable
+   end
+   save config
+   ```
+
+   Replace the port, VLAN, and address with the frozen field plan. Keep the
+   console attached because a management-VLAN change can end the remote path.
+
 5. If the Field Manager host is outside that subnet, add only the reviewed
    management route/default gateway required by the site design.
 6. Verify the new address from the Field Manager host before changing any data
    ports. Keep the console session open.
 
-### 4.2 Enable the API transport
+### 4.2A Enable the Switch Engine transport
 
 The adapter sends Basic-authenticated JSON-RPC `cli` requests to `/jsonrpc/`.
 Enable HTTPS on Switch Engine:
@@ -147,12 +173,60 @@ curl --fail --show-error --user "$FM_SWITCH_USER:$FM_SWITCH_PASSWORD" \
 A JSON-RPC response is required. A login page, HTML error, certificate error,
 or Fabric Engine response is not sufficient.
 
+### 4.2B Enable the Fabric Engine/VOSS transport
+
+The Fabric Engine adapter uses the interactive SSH CLI. From the console,
+enable SSH if it is not already enabled and save the change:
+
+```text
+enable
+configure terminal
+ssh key-exchange-method diffie-hellman-group-exchange-sha256
+boot config flags sshd
+end
+save config
+```
+
+Confirm that `show ssh global` lists
+`diffie-hellman-group-exchange-sha256`. Current OpenSSH and the Field Manager
+adapter reject a switch that offers only the legacy
+`diffie-hellman-group14-sha1` and `diffie-hellman-group1-sha1` methods unless
+the adapter's explicit legacy compatibility option is enabled. If the
+new method is listed but is not offered to a new connection, restart the SSH
+service with `ssh reset` from Global Configuration mode while the console is
+still attached. VOSS added the SHA-256 group-exchange option in 8.4.2. If the
+CLI rejects that option, record `show software` and plan a reviewed VOSS
+upgrade; use a per-connection legacy KEX override only for an isolated bench
+test, never as a machine-wide SSH default. If an upgrade cannot happen before
+deployment, set `FM_SWITCH_ALLOW_LEGACY_SSH_KEX=true`; the adapter then adds
+only group14-sha1, not the weaker group1 method, while retaining mandatory host
+key pinning. Return the setting to `false` after upgrading.
+
+Use a dedicated account with only the privileges needed for the documented
+show, VLAN, port, FDB-clear, and save commands. Verify login from the Pi:
+
+```sh
+ssh "$FM_SWITCH_USER@10.0.100.2" 'show sys-info'
+```
+
+Pin the host key. Obtain its fingerprint through the trusted console or a
+previously verified management path, compare it with the value shown by SSH,
+then put the exact OpenSSH `SHA256:...` value in
+`FM_SWITCH_SSH_HOST_KEY_SHA256`. The adapter refuses a missing or changed key.
+For example, this prints the fingerprints advertised at the reviewed address;
+do not trust the scan until it has been independently compared:
+
+```sh
+ssh-keyscan -p 22 10.0.100.2 2>/dev/null | ssh-keygen -lf - -E sha256
+```
+
 ### 4.3 Build the VLAN baseline
 
-Before making changes, capture `show configuration`, `show vlan`, `show ports`,
-and the current management route. Use the site's approved backup/export
-procedure. Do not remove the default VLAN or current management path until the
-replacement path has been tested.
+Before making changes, capture the OS-specific running configuration, VLAN and
+port state, and current management route (`show configuration` on Switch Engine
+or `show running-config` on Fabric Engine). Use the site's approved
+backup/export procedure. Do not remove the default VLAN or current management
+path until the replacement path has been tested.
 
 Pre-create and name the management, onboarding, and active team VLANs. The
 adapter can create a missing VLAN as `FM-<VID>`, but pre-provisioning gives the
@@ -169,6 +243,23 @@ create vlan Team-50 tag 50
 create vlan Team-60 tag 60
 ```
 
+The equivalent Fabric Engine/VOSS baseline is:
+
+```text
+enable
+configure terminal
+vlan create 100 name FM-Mgmt type port-mstprstp 0
+vlan create 999 name Onboarding type port-mstprstp 0
+vlan create 10 name Team-10 type port-mstprstp 0
+vlan create 20 name Team-20 type port-mstprstp 0
+vlan create 30 name Team-30 type port-mstprstp 0
+vlan create 40 name Team-40 type port-mstprstp 0
+vlan create 50 name Team-50 type port-mstprstp 0
+vlan create 60 name Team-60 type port-mstprstp 0
+end
+save config
+```
+
 Adapt names and VLAN IDs to the frozen field plan. Never reuse VLAN 1 for
 unassigned clients or management.
 
@@ -182,13 +273,75 @@ Configure only the reviewed ports:
   management trunk;
 - unused ports: disabled or placed in an inert site-approved VLAN.
 
-Do not copy a numeric port range from this guide. Confirm the standalone or
-stacked port IDs on the installed switch. The adapter defaults to data ports
-`1` through `52`; a stack may instead expose IDs such as `1:1`.
+For the example Fabric Engine port plan, the essential port forms are:
 
-After every trunk change, use `show port <port> vid` and `show vlan` to confirm
-untagged and tagged membership. Save the stable baseline only after console,
-management, DHCP, and AP paths have all passed readback.
+```text
+enable
+configure terminal
+
+# Client access port at rest
+vlan members remove 1 1/1 portmember
+vlan members add 999 1/1 portmember
+interface GigabitEthernet 1/1
+no untag-port-default-vlan
+no encapsulation dot1q
+default-vlan-id 999
+no untagged-frames-discard
+tagged-frames-discard enable
+no shutdown
+exit
+
+# Pi trunk: management and onboarding are both tagged
+vlan members remove 1 1/47 portmember
+vlan members add 100 1/47 portmember
+vlan members add 999 1/47 portmember
+interface GigabitEthernet 1/47
+encapsulation dot1q
+untagged-frames-discard
+no untag-port-default-vlan
+no tagged-frames-discard
+no shutdown
+exit
+
+# VH-113 trunk: management is native, team VLANs are tagged
+vlan members remove 1 1/48 portmember
+vlan members add 100 1/48 portmember
+vlan members add 10 1/48 portmember
+vlan members add 20 1/48 portmember
+vlan members add 30 1/48 portmember
+vlan members add 40 1/48 portmember
+vlan members add 50 1/48 portmember
+vlan members add 60 1/48 portmember
+interface GigabitEthernet 1/48
+encapsulation dot1q
+default-vlan-id 100
+no untagged-frames-discard
+untag-port-default-vlan enable
+no tagged-frames-discard
+no shutdown
+exit
+end
+save config
+```
+
+VOSS comments must be full lines; if the installed release rejects the `#`
+labels above, enter only the command lines. Apply the client form only to the
+explicitly approved client bank, not to infrastructure ports.
+
+Do not copy a numeric port range from this guide. Confirm the standalone or
+stacked port IDs on the installed switch. The Switch Engine adapter defaults to
+`1` through `52`; the Fabric Engine adapter defaults to `1/1` through `1/52`.
+Channelized or multi-unit systems can expose another form, which must be listed
+explicitly in `FM_SWITCH_PORT_IDS`.
+
+After every trunk change, confirm membership and native VLAN:
+
+- Switch Engine: `show port <port> vid` and `show vlan`
+- Fabric Engine: `show interfaces gigabitEthernet vlan` and
+  `show vlan members port <slot/port>`
+
+Save the stable baseline only after console, management, DHCP, and AP paths
+have all passed readback.
 
 ## 5. Commission the VH-113
 
@@ -228,83 +381,40 @@ manual configuration document.
 
 ## 6. Configure DHCP, DNS, and isolation
 
-Provide a DHCP scope or relay path for:
+The Raspberry Pi profile uses two distinct DHCP authorities:
 
-- onboarding VLAN 999;
-- each team VLAN that can be active (`10`, `20`, `30`, `40`, `50`, and `60` in
-  the example); and
-- the management VLAN only if the site design requires dynamic management
-  addresses.
+- dnsmasq binds only to the Pi's `fm-onboard` VLAN 999 interface and serves
+  `10.99.0.50-10.99.0.250`;
+- VH-113 Practice firmware serves the active team VLANs; and
+- management addresses are static in the supplied profile.
 
-The production DHCP integration must support lease lookup by both IP and MAC.
-The captive portal uses this chain:
+Do not enable team scopes in dnsmasq while the Practice firmware is providing
+them. Do not run the Offseason firmware with this profile without first adding
+an explicit team-DHCP design. Field Manager reads dnsmasq's shared lease file
+to support lookup by both IP and MAC. The captive portal uses this chain:
 
 ```text
 client IP -> DHCP lease -> client MAC -> switch FDB on onboarding VLAN -> port
 ```
 
-Configure DNS/portal behavior on the onboarding VLAN. At the router or
-firewall, default-deny traffic between team VLANs and deny client access to
-switch, AP, server, and infrastructure management endpoints. Allow only the
-explicit services the event design requires. Layer-2 VLAN separation alone does
-not prevent inter-team traffic if a router permits it.
+The supplied dnsmasq configuration directs onboarding DNS and DHCP option 114
+to `http://10.99.0.1/portal`. nginx permits those portal APIs from onboarding
+but limits administrative APIs to `10.0.100.0/24`. If these subnets change,
+update dnsmasq and nginx together. Do not add inter-VLAN routing unless a
+reviewed firewall policy requires it.
 
 ## 7. Wire the production adapters into the server
 
-Use secrets supplied at runtime, explicit port roles, and addresses from the
-field plan. The constructor shape is:
+Follow the [Raspberry Pi deployment guide](raspberry-pi-deployment.md). The
+production context loads the switch password and optional AP token from Compose
+secrets, restores active AP plaintext desired state from SQLite, registers the
+dnsmasq lease reader, and refuses to start with missing or overlapping port
+roles. Production mode excludes `SimulationService` and `/api/dev`.
 
-```ts
-import { VH113AccessPoint } from "@repo/ap";
-import { Extreme5420Switch } from "@repo/switch";
-
-const managedSwitch = new Extreme5420Switch({
-  info: {
-    id: "switch-1",
-    name: "Field Switch",
-    managementAddress: process.env.FM_SWITCH_URL!,
-  },
-  baseUrl: process.env.FM_SWITCH_URL!,
-  username: process.env.FM_SWITCH_USER!,
-  password: process.env.FM_SWITCH_PASSWORD!,
-  managementVlan: 100,
-  onboardingVlan: 999,
-  clientPorts: ["1", "2", "3", "4", "5", "6", "7", "8"],
-  apTrunkPorts: ["52"],
-  portRoles: {
-    "49": "server",
-    "50": "management",
-    "51": "unused",
-    "52": "ap-trunk",
-  },
-  saveConfiguration: false,
-});
-
-const accessPoint = new VH113AccessPoint({
-  info: {
-    id: "ap-1",
-    name: "Practice Field VH-113",
-    managementAddress: process.env.FM_AP_URL!,
-  },
-  baseUrl: process.env.FM_AP_URL!,
-  token: process.env.FM_AP_TOKEN,
-  initialConfigurations: loadActiveWirelessConfigurations(),
-});
-
-hardware.registerSwitch("switch-1", managedSwitch);
-hardware.registerAccessPoint("ap-1", accessPoint);
-```
-
-The port list above is illustrative. `loadActiveWirelessConfigurations()` is a
-placeholder for the production credential-backed loader; it is not currently
-implemented. Replace the mocks in a distinct production context/profile rather
-than conditionally repurposing the development context. The production context
-must also provide a real `DhcpLeaseProvider`, exclude `SimulationService`, and
-prevent `/api/dev` from being registered.
-
-Leave `saveConfiguration` false for transient practice assignments unless the
-site explicitly wants every successful write saved to switch flash. Persist the
-reviewed switch baseline separately.
+The supplied profile saves successful switch changes. Set
+`FM_SWITCH_SAVE_CONFIGURATION=false` during initial bench commissioning if
+every transient assignment should not be written to switch flash. Persist the
+reviewed switch baseline separately in either case.
 
 ## 8. Commission one path end to end
 
@@ -333,45 +443,51 @@ Expand to the remaining client ports and slots only after this path passes.
 
 ## 9. Go-live checklist
 
-- [ ] Switch reports model 5420M-48W-4YE and Switch Engine/ExtremeXOS.
+- [ ] Switch reports model 5420M-48W-4YE and the selected OS matches
+      `FM_SWITCH_OS`.
 - [ ] Console recovery and a known-good configuration backup are available.
 - [ ] Switch and AP credentials are unique and absent from source/logs.
-- [ ] HTTPS certificate validation succeeds from the Field Manager host.
+- [ ] Switch Engine HTTPS certificate validation or Fabric Engine SSH host-key
+      validation succeeds from the Field Manager host.
 - [ ] Client, AP, infrastructure, server, and management ports are explicitly
       assigned and reserved as appropriate.
 - [ ] AP native management and tagged team VLANs match switch readback.
 - [ ] Red and blue use distinct VH-113 VLAN banks.
 - [ ] DHCP lease lookup works by IP and MAC for real clients.
 - [ ] Inter-team and client-to-management traffic is blocked upstream.
-- [ ] All six possible active team VLANs have valid DHCP/route policy.
+- [ ] Practice firmware provides leases on all six possible active team VLANs.
 - [ ] One wired and one wireless assignment passed create, use, remove, and
       reconciliation tests.
-- [ ] The production server context uses real adapters and does not expose
-      `/api/dev`.
+- [ ] `/api/dev` returns 404 in production and admin APIs are denied from VLAN 999.
 - [ ] Operators know how to disconnect automation and restore the saved
       baseline from the console.
 
 ## 10. Troubleshooting
 
-| Symptom                              | Check                                                                                          |
-| ------------------------------------ | ---------------------------------------------------------------------------------------------- |
-| JSON-RPC returns HTML or 404         | Confirm Switch Engine, web API enablement, and `/jsonrpc/` URL                                 |
-| TLS request fails                    | Install a trusted certificate with the correct hostname/IP; do not disable verification        |
-| Adapter rejects the switch model     | Run `show version`; confirm 5420M-48W-4YE and Switch Engine                                    |
-| Port write fails readback            | Inspect `show port <port> vid` and VLAN membership; look for reserved/stacked port IDs         |
-| AP request is unauthorized           | Confirm bearer-token policy and secret injection                                               |
-| AP refuses one-slot update           | Supply plaintext desired state for every other configured slot through `initialConfigurations` |
-| AP rejects a VLAN                    | Select the correct VLAN for the slot position and alliance bank                                |
-| AP loses management after trunking   | Recheck the AP port's native/untagged management VLAN                                          |
-| Client never reaches the portal      | Check onboarding PVID, DHCP lease, DNS, and FDB MAC/port correlation                           |
-| Client moves VLAN but has the old IP | Confirm the bounce completed and force DHCP renewal on the test client                         |
-| Reconciliation reports drift         | Stop further writes, inspect device readback, then repair from known desired state             |
+| Symptom                              | Check                                                                                                       |
+| ------------------------------------ | ----------------------------------------------------------------------------------------------------------- |
+| JSON-RPC returns HTML or 404         | Confirm Switch Engine, web API enablement, and `/jsonrpc/` URL                                              |
+| TLS request fails                    | Install a trusted certificate with the correct hostname/IP; do not disable verification                     |
+| SSH login or host-key check fails    | Confirm Fabric Engine selection, `ssh://` URL, SSH service, account, and pinned fingerprint                 |
+| SSH reports no matching key exchange | Enable the SHA-256 method or, for VOSS 8.4.0 only, use the documented explicit legacy compatibility setting |
+| Adapter rejects the switch model     | Run the OS-specific identity commands and confirm 5420M-48W-4YE                                             |
+| Port write fails readback            | Inspect OS-specific VLAN state and confirm the configured port-ID format                                    |
+| AP request is unauthorized           | Confirm bearer-token policy and secret injection                                                            |
+| AP refuses one-slot update           | Supply plaintext desired state for every other configured slot through `initialConfigurations`              |
+| AP rejects a VLAN                    | Select the correct VLAN for the slot position and alliance bank                                             |
+| AP loses management after trunking   | Recheck the AP port's native/untagged management VLAN                                                       |
+| Client never reaches the portal      | Check onboarding PVID, DHCP lease, DNS, and FDB MAC/port correlation                                        |
+| Client moves VLAN but has the old IP | Confirm the bounce completed and force DHCP renewal on the test client                                      |
+| Reconciliation reports drift         | Stop further writes, inspect device readback, then repair from known desired state                          |
 
 ## References
 
 - [Extreme 5420 Series: first Switch Engine login](https://documentation.extremenetworks.com/5420%20Series%20Installation%20Guide/Universal_Hardware/5420_Series_Installation_Guide/topics/log_in_for_the_first_time_on_switch_engine.shtml)
 - [Extreme Switch Engine: enable web HTTPS](https://documentation.extremenetworks.com/switchengine_32.7.1/GUID-F755DBE4-B77C-46DF-8F1B-E5704DAA2C68.shtml)
 - [Extreme JSON-RPC API](https://documentation.extremenetworks.com/exos/api/ClientApplications/JSONRPC/index.html)
+- [Extreme Fabric Engine: VLAN port membership](https://documentation.extremenetworks.com/Fabric%20Engine%20v9.4%20User%20Guide/content/documents/Switch_Operating_Systems/VOSS_and_Fabric_Engine/fabric_engine_user_guide/adding_or_removing_ports_in_a_vlan.shtml)
+- [Extreme Fabric Engine: port VLAN readback](https://documentation.extremenetworks.com/FABRICENGINE/SW/88/FabricEngineUserGuide/GUID-269D581F-FA2D-4889-A965-F9A9395B5F0D.shtml)
+- [Extreme Fabric Engine: VLAN forwarding database](https://documentation.extremenetworks.com/Fabric%20Engine%20v9.4%20User%20Guide/content/documents/Switch_Operating_Systems/VOSS_and_Fabric_Engine/fabric_engine_user_guide/viewing_vlan_forwarding_database_information.shtml)
 - [FRC radio API](https://github.com/patfair/frc-radio-api)
 - [VH-113 documentation](https://frc-radio.vivid-hosting.net/)
 - [Local adapter behavior](hardware-adapters.md)

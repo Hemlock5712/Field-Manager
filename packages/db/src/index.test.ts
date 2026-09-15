@@ -16,6 +16,7 @@ describe("FieldRepository", () => {
       id: "a",
       teamNumber: 5712,
       vlanId: 10,
+      wirelessSsid: "Practice-5712",
       status: "offline",
       createdAt: now,
       updatedAt: now,
@@ -31,6 +32,7 @@ describe("FieldRepository", () => {
       }),
     ).toThrow();
     expect(repository.listAllocatedVlans()).toEqual([10]);
+    expect(repository.getTeamNetwork("a")?.wirelessSsid).toBe("Practice-5712");
   });
 
   it("stores multiple ports for one team", () => {

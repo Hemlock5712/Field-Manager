@@ -10,6 +10,7 @@ export function toTeamNetwork(record: TeamNetworkRecord): TeamNetwork {
     ...(record.accessPointSlot
       ? { accessPointSlot: record.accessPointSlot }
       : {}),
+    ...(record.wirelessSsid ? { wirelessSsid: record.wirelessSsid } : {}),
     ...(record.credentialRef
       ? { credentialReference: record.credentialRef }
       : {}),

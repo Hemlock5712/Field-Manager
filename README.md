@@ -80,9 +80,14 @@ logical topology, [hardware-adapters.md](docs/hardware-adapters.md) for adapter
 behavior, and [development.md](docs/development.md) for tests and simulation
 workflows.
 
+For a real field controller, use the
+[Raspberry Pi Docker deployment](docs/raspberry-pi-deployment.md). It supplies
+the production hardware context plus onboarding-only dnsmasq; the VH-113
+Practice firmware remains the DHCP authority for team VLANs.
+
 ## Security and operational notes
 
-Management access and onboarding/client VLANs should be physically and logically separated according to the field's risk model. The application does not provide a router or firewall: DHCP, DNS, CAPPORT signaling, and any inter-VLAN policy are infrastructure responsibilities. Credentials are referenced through a credential-storage abstraction; local development may use SQLite only with clearly documented, restricted permissions. See [hardware-adapters.md](docs/hardware-adapters.md).
+Management access and onboarding/client VLANs should be physically and logically separated according to the field's risk model. The Pi bundle provides onboarding DHCP, DNS, and DHCP option 114 as a sidecar, but no router or firewall. Credentials are referenced through a credential-storage abstraction; the production profile stores generated team keys in its restricted SQLite volume and injects device credentials through Compose secrets. See [hardware-adapters.md](docs/hardware-adapters.md).
 
 Hardware changes are observable operations. If a switch write, AP write, database transaction, or bounce fails, the service records an error and reconciliation reports desired-versus-actual drift instead of silently declaring success.
 

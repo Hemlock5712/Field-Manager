@@ -152,7 +152,7 @@ Before a field deployment:
 - back up switch/AP configuration and have a manual rollback procedure;
 - enable reconciliation and review drift before allowing broad operator access.
 
-The real adapters are implemented but must remain opt-in until the exact hardware and firmware have passed the lab checklist. The 5420 adapter targets Switch Engine/EXOS, not Fabric Engine/VOSS. The mock path remains the supported way to develop and demonstrate the system.
+The real adapters are implemented but must remain opt-in until the exact hardware and firmware have passed the lab checklist. The 5420 has separate Switch Engine/EXOS and Fabric Engine/VOSS adapters selected by `FM_SWITCH_OS`. The mock path remains the supported way to develop and demonstrate the system.
 
 ## Troubleshooting
 

@@ -1,0 +1,117 @@
+name: field-manager
+
+services:
+  network-init:
+    build:
+      context: ./network-init
+    network_mode: host
+    cap_add:
+      - NET_ADMIN
+    environment:
+      FM_PARENT_INTERFACE: ${FM_PARENT_INTERFACE:?Set FM_PARENT_INTERFACE in .env}
+      FM_MANAGEMENT_INTERFACE: fm-mgmt
+      FM_MANAGEMENT_VLAN: ${FM_MANAGEMENT_VLAN:-100}
+      FM_MANAGEMENT_ADDRESS: ${FM_MANAGEMENT_ADDRESS:-10.0.100.5/24}
+      FM_AP_MANAGEMENT_ADDRESS: ${FM_AP_MANAGEMENT_ADDRESS:-10.57.12.2/24}
+      FM_ONBOARDING_INTERFACE: fm-onboard
+      FM_ONBOARDING_VLAN: ${FM_ONBOARDING_VLAN:-999}
+      FM_ONBOARDING_ADDRESS: ${FM_ONBOARDING_ADDRESS:-10.99.0.1/24}
+    restart: "no"
+
+  dnsmasq:
+    build:
+      context: ./dnsmasq
+    network_mode: host
+    cap_add:
+      - NET_ADMIN
+    depends_on:
+      network-init:
+        condition: service_completed_successfully
+    volumes:
+      - dhcp-leases:/var/lib/misc
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "kill -0 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+  server:
+    build:
+      context: ../..
+      target: server
+    network_mode: host
+    depends_on:
+      network-init:
+        condition: service_completed_successfully
+      dnsmasq:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      FIELD_MANAGER_MODE: production
+      HOST: 127.0.0.1
+      PORT: 3000
+      FIELD_MANAGER_DB: /var/lib/field-manager/field-manager.sqlite
+      FIELD_MANAGER_DHCP_LEASE_FILE: /var/lib/dnsmasq/dnsmasq.leases
+      FM_MANAGEMENT_VLAN: ${FM_MANAGEMENT_VLAN:-100}
+      FM_ONBOARDING_VLAN: ${FM_ONBOARDING_VLAN:-999}
+      FM_SWITCH_ID: ${FM_SWITCH_ID:-switch-1}
+      FM_SWITCH_NAME: ${FM_SWITCH_NAME:-Field Switch}
+      FM_SWITCH_OS: ${FM_SWITCH_OS:-switch-engine}
+      FM_SWITCH_URL: ${FM_SWITCH_URL:?Set FM_SWITCH_URL in .env}
+      FM_SWITCH_USER: ${FM_SWITCH_USER:?Set FM_SWITCH_USER in .env}
+      FM_SWITCH_PASSWORD_FILE: /run/secrets/switch_password
+      FM_SWITCH_SSH_HOST_KEY_SHA256: ${FM_SWITCH_SSH_HOST_KEY_SHA256:-}
+      FM_SWITCH_ALLOW_LEGACY_SSH_KEX: ${FM_SWITCH_ALLOW_LEGACY_SSH_KEX:-false}
+      FM_SWITCH_PORT_IDS: ${FM_SWITCH_PORT_IDS:-}
+      FM_SWITCH_CLIENT_PORTS: ${FM_SWITCH_CLIENT_PORTS:?Set FM_SWITCH_CLIENT_PORTS in .env}
+      FM_SWITCH_AP_TRUNK_PORTS: ${FM_SWITCH_AP_TRUNK_PORTS:?Set FM_SWITCH_AP_TRUNK_PORTS in .env}
+      FM_SWITCH_SERVER_PORTS: ${FM_SWITCH_SERVER_PORTS:-}
+      FM_SWITCH_MANAGEMENT_PORTS: ${FM_SWITCH_MANAGEMENT_PORTS:-}
+      FM_SWITCH_UNUSED_PORTS: ${FM_SWITCH_UNUSED_PORTS:-}
+      FM_SWITCH_SAVE_CONFIGURATION: ${FM_SWITCH_SAVE_CONFIGURATION:-true}
+      FM_AP_ID: ${FM_AP_ID:-ap-1}
+      FM_AP_NAME: ${FM_AP_NAME:-Field VH-113}
+      FM_AP_URL: ${FM_AP_URL:?Set FM_AP_URL in .env}
+      FM_AP_TOKEN_FILE: /run/secrets/ap_token
+      FM_AP_CHANNEL: ${FM_AP_CHANNEL:-157}
+      FM_AP_CHANNEL_BANDWIDTH: ${FM_AP_CHANNEL_BANDWIDTH:-20MHz}
+    secrets:
+      - switch_password
+      - ap_token
+    volumes:
+      - field-manager-data:/var/lib/field-manager
+      - dhcp-leases:/var/lib/dnsmasq:ro
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3000/api/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  web:
+    build:
+      context: ../..
+      target: web
+    network_mode: host
+    depends_on:
+      server:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  field-manager-data:
+  dhcp-leases:
+
+secrets:
+  switch_password:
+    file: ./secrets/switch-password.txt
+  ap_token:
+    file: ./secrets/ap-token.txt

@@ -1,6 +1,6 @@
 # Network design
 
-This document describes the intended field topology. The application configures switch/AP desired state; it does not replace a DHCP server, DNS service, router, firewall, or a vendor's management plane.
+This document describes the intended field topology. The application configures switch/AP desired state; the Raspberry Pi deployment also supplies onboarding-only DHCP/DNS as a separate dnsmasq service. It does not replace a router, firewall, or vendor management plane.
 
 ## Logical topology
 
@@ -56,9 +56,14 @@ The adapter must expose only the operations the application needs: access VLAN, 
 
 ## DHCP and DNS placement
 
-For production, DHCP should run on infrastructure reachable from the onboarding VLAN and each team VLAN. It may be a centralized DHCP server via relay, or separate scopes on a router/firewall. The server must record leases (or expose an API) so the application can answer `getLeaseByIp` and `getLeaseByMac`. Lease reservations are not required for the MVP.
+In the supplied Raspberry Pi profile, dnsmasq is authoritative only on
+onboarding VLAN 999 and shares its lease file read-only with Field Manager.
+VH-113 Practice firmware owns DHCP on the active team VLANs. This avoids two
+DHCP servers answering on the same broadcast domain. A different AP firmware
+profile requires a separate, explicit team-DHCP design.
 
-DNS on the onboarding VLAN should resolve the portal hostname and commonly requested connectivity-check names to the portal or a controlled response, according to the operating systems being supported. Do not hijack DNS on team VLANs unless the event's network policy explicitly requires it. CAPPORT/DHCP option 114 can advertise a portal API/URI in a future integration; it is not required to complete the mock workflow.
+The bundled onboarding DNS resolves every name to the portal and DHCP option
+114 advertises `http://10.99.0.1/portal`. It does not bind to team VLANs.
 
 ```text
 Client IP (onboarding)

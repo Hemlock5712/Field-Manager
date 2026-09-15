@@ -1,0 +1,8 @@
+.git
+.turbo
+**/dist
+**/node_modules
+*.sqlite*
+coverage
+deploy/raspberry-pi/.env
+deploy/raspberry-pi/secrets/*.txt

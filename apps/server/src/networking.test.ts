@@ -1,8 +1,14 @@
 import { afterEach, describe, expect, it } from "vitest";
 import type { TeamNetworkRecord } from "@repo/db";
+import { Extreme5420FabricEngineSwitch } from "@repo/switch";
 import type { FastifyInstance } from "fastify";
 import { buildApp } from "./app.js";
-import { createAppContext, type AppContext } from "./context.js";
+import {
+  createAppContext,
+  createProductionAppContext,
+  type AppContext,
+  type DevelopmentAppContext,
+} from "./context.js";
 import { DomainError } from "./networking/errors.js";
 import { VlanAllocator } from "./networking/vlan-allocator.js";
 
@@ -14,7 +20,7 @@ afterEach(async () => {
   for (const context of contexts.splice(0)) context.database.close();
 });
 
-async function makeContext(seed = false): Promise<AppContext> {
+async function makeContext(seed = false): Promise<DevelopmentAppContext> {
   const context = await createAppContext({
     databasePath: ":memory:",
     seed,
@@ -329,6 +335,68 @@ describe("NetworkHealthService", () => {
 });
 
 describe("development simulator endpoints", () => {
+  it("selects the Fabric Engine adapter and VOSS port identifiers", async () => {
+    const context = await createProductionAppContext({
+      databasePath: ":memory:",
+      environment: {
+        FM_SWITCH_OS: "voss",
+        FM_SWITCH_URL: "ssh://10.0.100.2",
+        FM_SWITCH_USER: "field-manager",
+        FM_SWITCH_PASSWORD: "test-password",
+        FM_SWITCH_SSH_HOST_KEY_SHA256:
+          "SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+        FM_SWITCH_CLIENT_PORTS: "1/1,1/2",
+        FM_SWITCH_AP_TRUNK_PORTS: "1/48",
+        FM_AP_URL: "http://10.57.12.1:8081",
+        FIELD_MANAGER_DHCP_LEASE_FILE: "/missing/dnsmasq.leases",
+      },
+    });
+    contexts.push(context);
+
+    expect(context.hardware.getSwitch("switch-1")).toBeInstanceOf(
+      Extreme5420FabricEngineSwitch,
+    );
+    expect(
+      context.repository.listSwitches().find(({ id }) => id === "switch-1"),
+    ).toMatchObject({
+      adapterType: "extreme-5420m-48w-4ye-fabric-engine",
+      metadata: {
+        switchOs: "fabric-engine",
+        clientPorts: ["1/1", "1/2"],
+        apTrunkPorts: ["1/48"],
+      },
+    });
+  });
+
+  it("does not register simulator routes in production mode", async () => {
+    const context = await createProductionAppContext({
+      databasePath: ":memory:",
+      environment: {
+        FM_SWITCH_URL: "http://10.0.100.2",
+        FM_SWITCH_USER: "field-manager",
+        FM_SWITCH_PASSWORD: "test-password",
+        FM_SWITCH_CLIENT_PORTS: "1,2",
+        FM_SWITCH_AP_TRUNK_PORTS: "48",
+        FM_AP_URL: "http://10.57.12.1:8081",
+        FIELD_MANAGER_DHCP_LEASE_FILE: "/missing/dnsmasq.leases",
+      },
+    });
+    contexts.push(context);
+    const app = await buildApp(context);
+    apps.push(app);
+
+    const dev = await app.inject({ method: "GET", url: "/api/dev/state" });
+    expect(dev.statusCode).toBe(404);
+
+    const portal = await app.inject({
+      method: "GET",
+      url: "/api/portal/session?ip=10.99.0.77",
+      headers: { "x-forwarded-for": "10.99.0.51" },
+    });
+    expect(portal.statusCode).toBe(200);
+    expect(portal.json()).toMatchObject({ ip: "10.99.0.51" });
+  });
+
   it("exposes complete state and supports DHCP, port, AP, and failure controls", async () => {
     const context = await makeContext(true);
     const app = await buildApp(context);

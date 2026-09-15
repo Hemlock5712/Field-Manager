@@ -9,6 +9,7 @@ export interface TeamNetwork {
   vlanId: number;
   accessPointId?: string;
   accessPointSlot?: string;
+  wirelessSsid?: string;
   credentialReference?: string;
   status: TeamNetworkStatus;
   statusMessage?: string;

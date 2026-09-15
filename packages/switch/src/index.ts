@@ -90,6 +90,11 @@ export type {
   SwitchEngineCliTransport,
   SwitchEngineJsonRpcOptions,
 } from "./extreme5420.js";
+export type {
+  Extreme5420FabricEngineSwitchOptions,
+  FabricEngineCliTransport,
+  FabricEngineSshOptions,
+} from "./extreme5420-voss.js";
 export { MockManagedSwitch, MockSwitch } from "./mock.js";
 export { CiscoSwitch } from "./cisco.js";
 export {
@@ -97,3 +102,8 @@ export {
   Extreme5420Switch,
   SwitchEngineJsonRpcTransport,
 } from "./extreme5420.js";
+export {
+  Extreme5420FabricEngineSwitch,
+  Extreme5420VossSwitch,
+  FabricEngineSshTransport,
+} from "./extreme5420-voss.js";

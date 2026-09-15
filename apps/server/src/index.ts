@@ -1,7 +1,13 @@
 import { buildApp } from "./app.js";
-import { createAppContext } from "./context.js";
+import { createAppContext, createProductionAppContext } from "./context.js";
 
-const context = await createAppContext();
+const mode = process.env.FIELD_MANAGER_MODE?.trim() || "mock";
+if (mode !== "mock" && mode !== "production")
+  throw new TypeError("FIELD_MANAGER_MODE must be mock or production");
+const context =
+  mode === "production"
+    ? await createProductionAppContext()
+    : await createAppContext();
 const app = await buildApp(context);
 const port = Number(process.env.PORT ?? 3000);
 

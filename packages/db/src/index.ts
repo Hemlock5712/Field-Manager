@@ -14,6 +14,7 @@ export interface TeamNetworkRecord {
   vlanId: number;
   accessPointId?: string;
   accessPointSlot?: string;
+  wirelessSsid?: string;
   credentialRef?: string;
   status: "provisioning" | "waiting-for-robot" | "online" | "offline" | "error";
   statusMessage?: string;
@@ -91,6 +92,7 @@ export function initializeDatabase(database: Database.Database): void {
       vlan_id INTEGER NOT NULL UNIQUE CHECK (vlan_id BETWEEN 1 AND 4094),
       access_point_id TEXT REFERENCES access_points(id) ON DELETE SET NULL,
       access_point_slot TEXT,
+      wireless_ssid TEXT,
       credential_ref TEXT,
       status TEXT NOT NULL,
       status_message TEXT,
@@ -111,6 +113,11 @@ export function initializeDatabase(database: Database.Database): void {
       reference TEXT PRIMARY KEY, secret TEXT NOT NULL, created_at TEXT NOT NULL
     );
   `);
+  const teamColumns = database
+    .prepare("PRAGMA table_info(team_networks)")
+    .all() as Array<{ name: string }>;
+  if (!teamColumns.some((column) => column.name === "wireless_ssid"))
+    database.exec("ALTER TABLE team_networks ADD COLUMN wireless_ssid TEXT");
   database
     .prepare(
       `INSERT OR IGNORE INTO installation_config
@@ -132,6 +139,7 @@ type TeamRow = {
   vlan_id: number;
   access_point_id: string | null;
   access_point_slot: string | null;
+  wireless_ssid: string | null;
   credential_ref: string | null;
   status: TeamNetworkRecord["status"];
   status_message: string | null;
@@ -157,6 +165,7 @@ function toTeam(row: TeamRow): TeamNetworkRecord {
     ...(row.access_point_slot
       ? { accessPointSlot: row.access_point_slot }
       : {}),
+    ...(row.wireless_ssid ? { wirelessSsid: row.wireless_ssid } : {}),
     ...(row.credential_ref ? { credentialRef: row.credential_ref } : {}),
     status: row.status,
     ...(row.status_message ? { statusMessage: row.status_message } : {}),
@@ -248,8 +257,9 @@ export class FieldRepository {
     this.database
       .prepare(
         `INSERT INTO team_networks
-      (id, team_number, vlan_id, access_point_id, access_point_slot, credential_ref,
-       status, status_message, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      (id, team_number, vlan_id, access_point_id, access_point_slot, wireless_ssid,
+       credential_ref, status, status_message, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         network.id,
@@ -257,6 +267,7 @@ export class FieldRepository {
         network.vlanId,
         network.accessPointId ?? null,
         network.accessPointSlot ?? null,
+        network.wirelessSsid ?? null,
         network.credentialRef ?? null,
         network.status,
         network.statusMessage ?? null,
@@ -268,13 +279,15 @@ export class FieldRepository {
     this.database
       .prepare(
         `UPDATE team_networks SET team_number = ?, vlan_id = ?, access_point_id = ?,
-      access_point_slot = ?, credential_ref = ?, status = ?, status_message = ?, updated_at = ? WHERE id = ?`,
+      access_point_slot = ?, wireless_ssid = ?, credential_ref = ?, status = ?,
+      status_message = ?, updated_at = ? WHERE id = ?`,
       )
       .run(
         network.teamNumber,
         network.vlanId,
         network.accessPointId ?? null,
         network.accessPointSlot ?? null,
+        network.wirelessSsid ?? null,
         network.credentialRef ?? null,
         network.status,
         network.statusMessage ?? null,
