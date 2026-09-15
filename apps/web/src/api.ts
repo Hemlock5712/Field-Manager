@@ -198,6 +198,13 @@ const configDefaults: AppConfig = {
   portBounceDelayMs: 450,
 };
 
+export const emptyData: DashboardData = {
+  config: configDefaults,
+  teams: [],
+  accessPoints: [],
+  switches: [],
+};
+
 export const demoData: DashboardData = {
   config: configDefaults,
   teams: [

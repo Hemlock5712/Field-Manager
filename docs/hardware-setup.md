@@ -360,8 +360,10 @@ have all passed readback.
 
 1. Connect the VH-113 to the reserved AP trunk only after validating that
    trunk's native management VLAN.
-2. Give the AP its approved management address and confirm it is reachable from
-   the Field Manager host.
+2. With the Practice firmware profile used by this deployment, confirm the AP
+   is at `10.0.100.1` and is reachable from the Field Manager host on management
+   VLAN 100. The example switch and Pi addresses are `10.0.100.2` and
+   `10.0.100.5`, respectively.
 3. Confirm that the installed firmware exposes `frc-radio-api`, normally on
    port 8081. If bearer authentication is enabled, load the token into the
    Field Manager secret environment without committing it:
@@ -371,10 +373,10 @@ have all passed readback.
    export VH113_TOKEN
    curl --fail --show-error \
      --header "Authorization: Bearer $VH113_TOKEN" \
-     http://ap-management.example:8081/health
+     http://10.0.100.1:8081/health
    curl --fail --show-error \
      --header "Authorization: Bearer $VH113_TOKEN" \
-     http://ap-management.example:8081/status
+     http://10.0.100.1:8081/status
    ```
 
 4. Record the firmware version, channel, channel width, red/blue banks, and all

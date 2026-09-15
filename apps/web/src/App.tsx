@@ -8,6 +8,7 @@ import {
 import {
   api,
   demoData,
+  emptyData,
   type DashboardData,
   type DhcpLease,
   type PortRole,
@@ -877,9 +878,14 @@ function Portal({
 
 export function App() {
   const isPortal = window.location.pathname.startsWith("/portal");
-  const showLab = new URLSearchParams(window.location.search).has("lab");
-  const [data, setData] = useState<DashboardData>(demoData);
-  const [usingDemo, setUsingDemo] = useState(false);
+  const search = new URLSearchParams(window.location.search);
+  const showLab = search.has("lab");
+  const demoRequested = search.has("demo");
+  const [data, setData] = useState<DashboardData>(
+    demoRequested ? demoData : emptyData,
+  );
+  const [usingDemo, setUsingDemo] = useState(demoRequested);
+  const [apiOffline, setApiOffline] = useState(false);
   const [loading, setLoading] = useState(true);
   const [selectedPortId, setSelectedPortId] = useState<string>();
   const [selectedTeamId, setSelectedTeamId] = useState<string>();
@@ -887,18 +893,24 @@ export function App() {
   const [toast, setToast] = useState("");
   const refresh = useCallback(async () => {
     setLoading(true);
+    if (demoRequested) {
+      setData(demoData);
+      setUsingDemo(true);
+      setApiOffline(false);
+      setLoading(false);
+      return;
+    }
     try {
       const remote = await api.getDashboard();
-      if (remote.switches.length || remote.teams.length) {
-        setData(remote);
-        setUsingDemo(false);
-      } else throw new Error("empty");
+      setData(remote);
+      setUsingDemo(false);
+      setApiOffline(false);
     } catch {
-      setUsingDemo(true);
+      setApiOffline(true);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [demoRequested]);
   useEffect(() => {
     void refresh();
   }, [refresh]);
@@ -1036,11 +1048,13 @@ export function App() {
           <strong>Field Manager</strong>
         </div>
         <div className="bar-meta">
-          <span className={`pulse ${usingDemo ? "off" : ""}`} />
-          {usingDemo ? (
+          <span className={`pulse ${apiOffline || usingDemo ? "off" : ""}`} />
+          {apiOffline ? (
             <button className="text" onClick={() => void refresh()}>
               Offline
             </button>
+          ) : usingDemo ? (
+            <span>Demo</span>
           ) : (
             <span>
               {liveCount}/{data.teams.length} live

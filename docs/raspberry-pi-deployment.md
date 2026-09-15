@@ -10,11 +10,15 @@ Connect the Pi's Ethernet port to a switch port tagged for management VLAN 100
 and onboarding VLAN 999. The boot-persistent `network-init` container creates
 these host interfaces:
 
-| Interface    | Address      | Purpose                                      |
-| ------------ | ------------ | -------------------------------------------- |
-| `fm-mgmt`    | `10.0.100.5` | Switch/API management and operator access    |
-| `fm-mgmt`    | `10.57.12.2` | Secondary address for the AP at `10.57.12.1` |
-| `fm-onboard` | `10.99.0.1`  | Onboarding DHCP, DNS, and portal             |
+| Interface    | Address      | Purpose                                   |
+| ------------ | ------------ | ----------------------------------------- |
+| `fm-mgmt`    | `10.0.100.5` | Switch, AP, and operator management       |
+| `fm-onboard` | `10.99.0.1`  | Onboarding DHCP, DNS, and portal          |
+
+The supplied field plan keeps the Practice-profile AP at `10.0.100.1`, the
+switch at `10.0.100.2`, and the Pi at `10.0.100.5`, all on management VLAN 100.
+No secondary Pi address is needed. `FM_AP_MANAGEMENT_ADDRESS` exists only for
+installations whose AP is on a different management subnet.
 
 The containers use host networking because DHCP discovery is a Layer-2
 broadcast and because the services must bind directly to `fm-onboard`.
@@ -66,7 +70,7 @@ Edit `.env` before starting anything:
 - enumerate every application-owned port explicitly;
 - make the client, AP trunk, server, management, and unused lists disjoint;
 - confirm that the AP API is actually reachable at
-  `http://10.57.12.1:8081`;
+  `http://10.0.100.1:8081`;
 - select an approved 5 GHz channel and width.
 
 Compose reads `.env` automatically, but the host shell does not. After editing
@@ -209,10 +213,23 @@ Confirm that Linux selects the tagged management interface for the switch:
 
 ```sh
 ip route get 10.0.100.2
+ip route get 10.0.100.1
 ```
 
-The result must contain `dev fm-mgmt` and `src 10.0.100.5`. If it selects the
-home interface, stop and remove the overlapping connection before continuing.
+Both results must contain `dev fm-mgmt` and `src 10.0.100.5`. If either selects
+the home interface, stop and remove the overlapping connection before
+continuing. A home router also using `10.0.100.1/24` is an exact address and
+subnet collision with the AP; the Pi cannot reach both endpoints through the
+same ordinary routing table. Disconnect that network during field operation or
+renumber it.
+
+Deployments started with the earlier example may retain its obsolete secondary
+address until the host reboots. After confirming `FM_AP_MANAGEMENT_ADDRESS` is
+empty and `10.0.100.5/24` is present on `fm-mgmt`, remove only that old address:
+
+```sh
+sudo ip address delete 10.57.12.2/24 dev fm-mgmt
+```
 
 The first build produces ARM64 images directly on a 64-bit Pi. Persistent
 volumes retain SQLite state and dnsmasq leases across container replacement.
