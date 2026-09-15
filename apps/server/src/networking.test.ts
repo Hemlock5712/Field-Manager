@@ -332,6 +332,19 @@ describe("NetworkHealthService", () => {
       ]),
     );
   });
+
+  it("inspects switch ports in one bulk read", async () => {
+    const context = await makeContext(true);
+    context.mockSwitch.setFailure("getPort", new Error("per-port read used"));
+
+    const report = await context.health.inspect();
+
+    expect(report.issues).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: "hardware-unavailable" }),
+      ]),
+    );
+  });
 });
 
 describe("development simulator endpoints", () => {
@@ -477,6 +490,35 @@ describe("development simulator endpoints", () => {
         })
       ).statusCode,
     ).toBe(200);
+  });
+
+  it("loads the dashboard with one bulk MAC-table read", async () => {
+    const context = await makeContext(true);
+    context.mockSwitch.setFailure(
+      "getMacsOnPort",
+      new Error("per-port MAC read used"),
+    );
+    const app = await buildApp(context);
+    apps.push(app);
+
+    const overview = await app.inject({ method: "GET", url: "/api/overview" });
+
+    expect(overview.statusCode).toBe(200);
+    expect(overview.json()).toMatchObject({
+      switches: [
+        {
+          id: "switch-1",
+          ports: expect.arrayContaining([
+            expect.objectContaining({
+              id: "8",
+              learnedMacs: [
+                expect.objectContaining({ mac: "AA:BB:CC:DD:EE:FF" }),
+              ],
+            }),
+          ]),
+        },
+      ],
+    });
   });
 
   it("supports safe desired-state reset and explicit seeded-demo reset", async () => {

@@ -14,54 +14,77 @@ export class NetworkHealthService {
     const teams = new Map(
       this.repository.listTeamNetworks().map((team) => [team.id, team]),
     );
+    const assignmentsBySwitch = new Map<
+      string,
+      ReturnType<FieldRepository["listPortAssignments"]>
+    >();
 
     for (const assignment of this.repository.listPortAssignments()) {
-      let port;
+      const assignments = assignmentsBySwitch.get(assignment.switchId) ?? [];
+      assignments.push(assignment);
+      assignmentsBySwitch.set(assignment.switchId, assignments);
+    }
+
+    for (const [switchId, assignments] of assignmentsBySwitch) {
+      let ports;
       try {
-        port = await this.hardware
-          .getSwitch(assignment.switchId)
-          .getPort(assignment.portId);
+        ports = await this.hardware.getSwitch(switchId).getPorts();
       } catch (error) {
-        issues.push({
-          kind: "hardware-unavailable",
-          switchId: assignment.switchId,
-          portId: assignment.portId,
-          message: `Could not inspect ${assignment.switchId} port ${assignment.portId}: ${String(error)}`,
-        });
+        for (const assignment of assignments)
+          issues.push({
+            kind: "hardware-unavailable",
+            switchId,
+            portId: assignment.portId,
+            message: `Could not inspect ${switchId} port ${assignment.portId}: ${String(error)}`,
+          });
         continue;
       }
-      if (assignment.role === "client" || assignment.role === "unused") {
-        const team = assignment.teamNetworkId
-          ? teams.get(assignment.teamNetworkId)
-          : undefined;
-        const expected = team?.vlanId ?? config.onboardingVlan;
-        if (port.mode !== "access" || port.accessVlan !== expected) {
+
+      const portsById = new Map(ports.map((port) => [port.id, port]));
+      for (const assignment of assignments) {
+        const port = portsById.get(assignment.portId);
+        if (!port) {
           issues.push({
-            kind: "switch-port-drift",
-            switchId: assignment.switchId,
+            kind: "hardware-unavailable",
+            switchId,
             portId: assignment.portId,
-            ...(team ? { teamNetworkId: team.id } : {}),
-            message: `Port ${assignment.portId} expected access VLAN ${expected}; actual ${port.mode === "access" ? `VLAN ${port.accessVlan ?? "unset"}` : "trunk"}`,
+            message: `Could not inspect ${switchId} port ${assignment.portId}: port was not returned by the switch`,
           });
+          continue;
         }
-      } else if (assignment.role === "ap-trunk") {
-        const expectedVlans = [...teams.values()]
-          .map((team) => team.vlanId)
-          .sort((left, right) => left - right);
-        const actualVlans = [...(port.taggedVlans ?? [])].sort(
-          (left, right) => left - right,
-        );
-        if (
-          port.mode !== "trunk" ||
-          port.nativeVlan !== config.managementVlan ||
-          expectedVlans.join(",") !== actualVlans.join(",")
-        ) {
-          issues.push({
-            kind: "switch-port-drift",
-            switchId: assignment.switchId,
-            portId: assignment.portId,
-            message: `AP trunk ${assignment.portId} expected tagged VLANs [${expectedVlans.join(", ")}] with native VLAN ${config.managementVlan}`,
-          });
+        if (assignment.role === "client" || assignment.role === "unused") {
+          const team = assignment.teamNetworkId
+            ? teams.get(assignment.teamNetworkId)
+            : undefined;
+          const expected = team?.vlanId ?? config.onboardingVlan;
+          if (port.mode !== "access" || port.accessVlan !== expected) {
+            issues.push({
+              kind: "switch-port-drift",
+              switchId,
+              portId: assignment.portId,
+              ...(team ? { teamNetworkId: team.id } : {}),
+              message: `Port ${assignment.portId} expected access VLAN ${expected}; actual ${port.mode === "access" ? `VLAN ${port.accessVlan ?? "unset"}` : "trunk"}`,
+            });
+          }
+        } else if (assignment.role === "ap-trunk") {
+          const expectedVlans = [...teams.values()]
+            .map((team) => team.vlanId)
+            .sort((left, right) => left - right);
+          const actualVlans = [...(port.taggedVlans ?? [])].sort(
+            (left, right) => left - right,
+          );
+          if (
+            port.mode !== "trunk" ||
+            port.nativeVlan !== config.managementVlan ||
+            expectedVlans.join(",") !== actualVlans.join(",")
+          ) {
+            issues.push({
+              kind: "switch-port-drift",
+              switchId,
+              portId: assignment.portId,
+              message: `AP trunk ${assignment.portId} expected tagged VLANs [${expectedVlans.join(", ")}] with native VLAN ${config.managementVlan}`,
+            });
+          }
         }
       }
     }

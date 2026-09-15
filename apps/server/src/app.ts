@@ -431,9 +431,10 @@ async function getAccessPoints(context: AppContext) {
 
 async function getPorts(context: AppContext, switchId: string) {
   const managedSwitch = context.hardware.getSwitch(switchId);
-  const [info, ports] = await Promise.all([
+  const [info, ports, macTable] = await Promise.all([
     managedSwitch.getInfo(),
     managedSwitch.getPorts(),
+    managedSwitch.getMacTable(),
   ]);
   const assignments = new Map(
     context.repository
@@ -445,23 +446,21 @@ async function getPorts(context: AppContext, switchId: string) {
   );
   return {
     switch: info,
-    ports: await Promise.all(
-      ports.map(async (port) => {
-        const assignment = assignments.get(port.id);
-        const team = assignment?.teamNetworkId
-          ? teams.get(assignment.teamNetworkId)
-          : undefined;
-        const learnedMacs = await managedSwitch.getMacsOnPort(port.id);
-        return {
-          ...port,
-          role: assignment?.role ?? port.role,
-          label: assignment?.label,
-          teamNetworkId: team?.id,
-          teamNumber: team?.teamNumber,
-          learnedMacs,
-          macs: learnedMacs.map((entry) => entry.mac),
-        };
-      }),
-    ),
+    ports: ports.map((port) => {
+      const assignment = assignments.get(port.id);
+      const team = assignment?.teamNetworkId
+        ? teams.get(assignment.teamNetworkId)
+        : undefined;
+      const learnedMacs = macTable.filter((entry) => entry.portId === port.id);
+      return {
+        ...port,
+        role: assignment?.role ?? port.role,
+        label: assignment?.label,
+        teamNetworkId: team?.id,
+        teamNumber: team?.teamNumber,
+        learnedMacs,
+        macs: learnedMacs.map((entry) => entry.mac),
+      };
+    }),
   };
 }
