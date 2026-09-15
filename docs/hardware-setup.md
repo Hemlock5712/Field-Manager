@@ -275,12 +275,20 @@ Configure only the reviewed ports:
 
 For the example Fabric Engine port plan, the essential port forms are:
 
+VOSS Auto-sense can place an uncommissioned port in the private onboarding VLAN 4048. Disable Auto-sense on each application-owned port before changing its
+VLAN configuration, then use `show vlan members port <slot/port>` to identify
+and remove its current VLAN. The examples below show VLAN 4048 as the initial
+membership; substitute VLAN 1 if that is what the readback reports.
+
 ```text
 enable
 configure terminal
 
 # Client access port at rest
-vlan members remove 1 1/1 portmember
+interface GigabitEthernet 1/1
+no auto-sense enable
+exit
+vlan members remove 4048 1/1 portmember
 vlan members add 999 1/1 portmember
 interface GigabitEthernet 1/1
 no untag-port-default-vlan
@@ -292,7 +300,10 @@ no shutdown
 exit
 
 # Pi trunk: management and onboarding are both tagged
-vlan members remove 1 1/47 portmember
+interface GigabitEthernet 1/47
+no auto-sense enable
+exit
+vlan members remove 4048 1/47 portmember
 vlan members add 100 1/47 portmember
 vlan members add 999 1/47 portmember
 interface GigabitEthernet 1/47
@@ -303,15 +314,12 @@ no tagged-frames-discard
 no shutdown
 exit
 
-# VH-113 trunk: management is native, team VLANs are tagged
-vlan members remove 1 1/48 portmember
+# VH-113 trunk baseline: management is native; Field Manager adds team VLANs
+interface GigabitEthernet 1/48
+no auto-sense enable
+exit
+vlan members remove 4048 1/48 portmember
 vlan members add 100 1/48 portmember
-vlan members add 10 1/48 portmember
-vlan members add 20 1/48 portmember
-vlan members add 30 1/48 portmember
-vlan members add 40 1/48 portmember
-vlan members add 50 1/48 portmember
-vlan members add 60 1/48 portmember
 interface GigabitEthernet 1/48
 encapsulation dot1q
 default-vlan-id 100
@@ -327,6 +335,11 @@ save config
 VOSS comments must be full lines; if the installed release rejects the `#`
 labels above, enter only the command lines. Apply the client form only to the
 explicitly approved client bank, not to infrastructure ports.
+
+Do not add onboarding VLAN 999 to the VH-113 trunk. The baseline AP port has
+only native/untagged VLAN 100; after a team network is allocated, Field Manager
+adds that team's VLAN as tagged membership and removes it again when the team
+network is deleted.
 
 Do not copy a numeric port range from this guide. Confirm the standalone or
 stacked port IDs on the installed switch. The Switch Engine adapter defaults to

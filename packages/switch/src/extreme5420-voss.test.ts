@@ -132,7 +132,11 @@ class FakeFabricEngine implements FabricEngineCliTransport {
             .join("\n"),
         );
       } else if (/^show vlan mac-address-entry mac /.test(command)) {
-        const mac = command.split(" ").at(-1)!.toLowerCase();
+        const mac = command
+          .split(" ")
+          .at(-1)!
+          .replaceAll("0x", "")
+          .toLowerCase();
         outputs.push(
           this.fdb
             .filter((line) => line.toLowerCase().includes(` ${mac} `))
@@ -262,6 +266,9 @@ describe("Extreme5420FabricEngineSwitch", () => {
       },
     ]);
     expect(await sw.findPortByMac("aa-bb-cc-dd-ee-ff")).toBe("1/1");
+    expect(transport.commands).toContain(
+      "show vlan mac-address-entry mac 0xAA:0xBB:0xCC:0xDD:0xEE:0xFF",
+    );
     await sw.clearMacsOnPort("1/1");
     expect(transport.commands).toContain(
       "clear mac-address-table dynamic AA:BB:CC:DD:EE:FF 999",

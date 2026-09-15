@@ -275,6 +275,12 @@ const normalizeMac = (mac: string): string => {
   return hex.match(/../g)!.join(":");
 };
 
+const fabricEngineMacArgument = (mac: string): string =>
+  mac
+    .split(":")
+    .map((octet) => `0x${octet}`)
+    .join(":");
+
 function sameNumbers(left: number[], right: number[]): boolean {
   return (
     [...left].sort((a, b) => a - b).join(",") ===
@@ -579,7 +585,7 @@ export class Extreme5420FabricEngineSwitch implements ManagedSwitch {
   async findPortByMac(mac: string): Promise<string | null> {
     const normalized = normalizeMac(mac);
     const [output = ""] = await this.read([
-      `show vlan mac-address-entry mac ${normalized}`,
+      `show vlan mac-address-entry mac ${fabricEngineMacArgument(normalized)}`,
     ]);
     return (
       parseFabricEngineFdb(output).find(

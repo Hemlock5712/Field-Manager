@@ -1,0 +1,12 @@
+services:
+  network-init:
+    image: ${FM_IMAGE_REGISTRY:-ghcr.io/hemlock5712}/field-manager-network-init:${FM_IMAGE_TAG:?Set FM_IMAGE_TAG to a published release or sha tag}
+
+  dnsmasq:
+    image: ${FM_IMAGE_REGISTRY:-ghcr.io/hemlock5712}/field-manager-dnsmasq:${FM_IMAGE_TAG:?Set FM_IMAGE_TAG to a published release or sha tag}
+
+  server:
+    image: ${FM_IMAGE_REGISTRY:-ghcr.io/hemlock5712}/field-manager-server:${FM_IMAGE_TAG:?Set FM_IMAGE_TAG to a published release or sha tag}
+
+  web:
+    image: ${FM_IMAGE_REGISTRY:-ghcr.io/hemlock5712}/field-manager-web:${FM_IMAGE_TAG:?Set FM_IMAGE_TAG to a published release or sha tag}

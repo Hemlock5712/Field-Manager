@@ -97,7 +97,9 @@ Pi address, dnsmasq pool/options, AP portal URL, and nginx policy together.
 The Pi-facing switch port is an 802.1Q trunk with VLANs 100 and 999 tagged. The
 VH-113-facing port has management as its native VLAN and active team VLANs
 tagged. The application must not own the Pi-facing infrastructure port as a
-client port.
+client port. On VOSS, disable Auto-sense on every application-owned port before
+configuring it; an Auto-sense port in private VLAN 4048 is not connected to
+Field Manager's onboarding VLAN 999.
 
 Before launch, verify from the Pi host. For Switch Engine:
 
@@ -138,6 +140,37 @@ Compose interpolation checks catch missing required variables before launch:
 docker compose config --quiet
 docker compose build
 ```
+
+### Use published GHCR images
+
+The release workflow publishes four ARM64 images to GitHub Container Registry:
+`server`, `web`, `network-init`, and `dnsmasq`. It does not receive the Pi's
+`.env`, switch password, or AP token. To use these images, set `FM_IMAGE_TAG` in
+`.env` to a published immutable release such as `1.2.3`, or to the full
+`sha-...` tag shown by the workflow. Do not use an unpinned `latest` tag.
+
+While the Pi still has internet access, pull the complete release:
+
+```sh
+docker compose --env-file .env \
+  --file compose.yaml \
+  --file compose.ghcr.yaml \
+  pull
+```
+
+If the GHCR packages are private, log in first using a token that has only the
+package-read permission. Once the images are present, move the Pi to the field
+network and create or update the containers without building:
+
+```sh
+docker compose --env-file .env \
+  --file compose.yaml \
+  --file compose.ghcr.yaml \
+  up --detach --no-build --force-recreate
+```
+
+Use both Compose files for future pull or update operations. Docker's stored
+restart policies do not require registry access during an ordinary reboot.
 
 If the build network overlaps the field management subnet, finish the build
 before moving the Pi. Do not leave the overlapping home Ethernet or Wi-Fi
