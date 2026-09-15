@@ -58,3 +58,12 @@ ensure_vlan_interface "$FM_ONBOARDING_INTERFACE" "$FM_ONBOARDING_VLAN" "$FM_ONBO
 
 ip -brief address show dev "$FM_MANAGEMENT_INTERFACE"
 ip -brief address show dev "$FM_ONBOARDING_INTERFACE"
+
+# Remain alive so Docker reruns this idempotent setup whenever it restarts the
+# container, including after a host reboot where VLAN interfaces no longer
+# exist. The health check gates dependent services during `docker compose up`.
+trap 'exit 0' INT TERM
+while :; do
+  sleep 3600 &
+  wait "$!"
+done

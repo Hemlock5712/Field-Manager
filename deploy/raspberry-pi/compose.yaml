@@ -16,7 +16,17 @@ services:
       FM_ONBOARDING_INTERFACE: fm-onboard
       FM_ONBOARDING_VLAN: ${FM_ONBOARDING_VLAN:-999}
       FM_ONBOARDING_ADDRESS: ${FM_ONBOARDING_ADDRESS:-10.99.0.1/24}
-    restart: "no"
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          'ip link show dev "$$FM_MANAGEMENT_INTERFACE" >/dev/null 2>&1 && ip link show dev "$$FM_ONBOARDING_INTERFACE" >/dev/null 2>&1',
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
 
   dnsmasq:
     build:
@@ -26,7 +36,7 @@ services:
       - NET_ADMIN
     depends_on:
       network-init:
-        condition: service_completed_successfully
+        condition: service_healthy
     volumes:
       - dhcp-leases:/var/lib/misc
     restart: unless-stopped
@@ -43,7 +53,7 @@ services:
     network_mode: host
     depends_on:
       network-init:
-        condition: service_completed_successfully
+        condition: service_healthy
       dnsmasq:
         condition: service_healthy
     environment:

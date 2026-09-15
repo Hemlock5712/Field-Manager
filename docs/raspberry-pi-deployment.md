@@ -7,8 +7,8 @@ profile and provides DHCP on the team VLANs. dnsmasq serves VLAN 999 only.
 ## Topology
 
 Connect the Pi's Ethernet port to a switch port tagged for management VLAN 100
-and onboarding VLAN 999. The one-shot `network-init` container creates these
-host interfaces:
+and onboarding VLAN 999. The boot-persistent `network-init` container creates
+these host interfaces:
 
 | Interface    | Address      | Purpose                                      |
 | ------------ | ------------ | -------------------------------------------- |
@@ -25,7 +25,21 @@ team VLANs.
 
 Install a current 64-bit Raspberry Pi OS and Docker Engine with the Compose
 plugin. Give the Pi a stable hostname, apply OS updates, enable time sync, and
-restrict SSH to the management network. Clone this repository, then:
+restrict SSH to the management network. To run Docker without prefixing every
+command with `sudo`, add the deployment user to Docker's local group:
+
+```sh
+sudo systemctl enable --now docker
+sudo groupadd --force docker
+sudo usermod --append --groups docker "$USER"
+```
+
+Membership in the `docker` group grants root-equivalent access. Log out of the
+Pi completely and log back in, then confirm `docker info` succeeds. Opening a
+new terminal inside the same login session is not sufficient. As a temporary
+alternative, prefix the documented `docker compose` commands with `sudo`.
+
+Clone this repository, then:
 
 ```sh
 cd deploy/raspberry-pi
@@ -54,6 +68,19 @@ Edit `.env` before starting anything:
 - confirm that the AP API is actually reachable at
   `http://10.57.12.1:8081`;
 - select an approved 5 GHz channel and width.
+
+Compose reads `.env` automatically, but the host shell does not. After editing
+the file, export its values into the current shell before running the host-side
+verification commands below:
+
+```sh
+set -a
+. ./.env
+set +a
+```
+
+Run this from `deploy/raspberry-pi`. Repeat it after opening a new shell or
+changing `.env`. Only source an `.env` file that you trust.
 
 The default `FM_SWITCH_PORT_IDS` is `1`-`52` for Switch Engine and
 `1/1`-`1/52` for Fabric Engine. Specify it for a stack, channelized port, or any
@@ -85,8 +112,12 @@ curl --fail --user "$FM_SWITCH_USER:$(cat secrets/switch-password.txt)" \
 For Fabric Engine/VOSS:
 
 ```sh
-ssh "$FM_SWITCH_USER@10.0.100.2" 'show sys-info'
-ssh "$FM_SWITCH_USER@10.0.100.2" 'show interfaces gigabitEthernet vlan'
+ssh -oKexAlgorithms=+diffie-hellman-group14-sha1 \
+  -oHostKeyAlgorithms=+ssh-rsa \
+  "$FM_SWITCH_USER@10.0.100.2" 'show sys-info'
+ssh -oKexAlgorithms=+diffie-hellman-group14-sha1 \
+  -oHostKeyAlgorithms=+ssh-rsa \
+  "$FM_SWITCH_USER@10.0.100.2" 'show interfaces gigabitEthernet vlan'
 ```
 
 Those manual OpenSSH commands require the same one-connection legacy options
@@ -106,10 +137,49 @@ Compose interpolation checks catch missing required variables before launch:
 ```sh
 docker compose config --quiet
 docker compose build
+```
+
+If the build network overlaps the field management subnet, finish the build
+before moving the Pi. Do not leave the overlapping home Ethernet or Wi-Fi
+connection active when starting Field Manager. After the build completes:
+
+1. Use a local console or a separate connection whose subnet does not overlap.
+2. Disconnect the Pi from the home network.
+3. Connect `FM_PARENT_INTERFACE` to the tagged switch trunk.
+4. Ensure the physical parent interface is up but does not retain a home-network
+   IPv4 address. Configure its OS network profile as a trunk with IPv4 and IPv6
+   disabled; the `network-init` service assigns addresses to the VLAN children.
+5. Start the deployment:
+
+```sh
 docker compose up -d
 docker compose ps
 docker compose logs --tail=100 network-init dnsmasq server web
 ```
+
+Docker starts these containers from their restart policies when the daemon
+starts; no interactive login is required. `network-init` remains running so its
+idempotent setup executes again after every host reboot. Compose health-gates
+the initial launch; after a daemon restart, dnsmasq's dynamic binding tolerates
+the brief interface recreation window. Verify the boot configuration with:
+
+```sh
+sudo systemctl is-enabled docker
+docker inspect --format '{{.HostConfig.RestartPolicy.Name}}' field-manager-network-init-1
+```
+
+Both commands should report `enabled` and `unless-stopped`, respectively. The
+exact container name can vary if the Compose project name is overridden; use
+`docker compose ps -q network-init` with `docker inspect` in that case.
+
+Confirm that Linux selects the tagged management interface for the switch:
+
+```sh
+ip route get 10.0.100.2
+```
+
+The result must contain `dev fm-mgmt` and `src 10.0.100.5`. If it selects the
+home interface, stop and remove the overlapping connection before continuing.
 
 The first build produces ARM64 images directly on a 64-bit Pi. Persistent
 volumes retain SQLite state and dnsmasq leases across container replacement.
