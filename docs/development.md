@@ -147,12 +147,12 @@ Before a field deployment:
 - verify management reachability and credentials without logging secrets;
 - confirm onboarding/team DHCP scopes, DNS, CAPPORT/connectivity-check behavior, and routing isolation;
 - verify AP trunk/native VLAN semantics and team VLAN propagation;
-- verify VH-113 API endpoints, slot discovery, configuration commit, station status, and clear/rollback behavior;
+- verify the installed VH-113 firmware matches the documented `frc-radio-api`, including configuration commit, station status, and clear/rollback behavior;
 - exercise unavailable hardware, timeout, partial-write, stale-lease, duplicate-MAC, and ambiguous-port cases;
 - back up switch/AP configuration and have a manual rollback procedure;
 - enable reconciliation and review drift before allowing broad operator access.
 
-The VH-113 and real switch adapters should remain feature-flagged until their unknown API details are verified. The mock path is the supported way to develop and demonstrate the system.
+The real adapters are implemented but must remain opt-in until the exact hardware and firmware have passed the lab checklist. The 5420 adapter targets Switch Engine/EXOS, not Fabric Engine/VOSS. The mock path remains the supported way to develop and demonstrate the system.
 
 ## Troubleshooting
 

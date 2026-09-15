@@ -85,5 +85,15 @@ export type {
   MockManagedSwitchOptions,
   MockSwitchFailureOperation,
 } from "./mock.js";
+export type {
+  Extreme5420SwitchOptions,
+  SwitchEngineCliTransport,
+  SwitchEngineJsonRpcOptions,
+} from "./extreme5420.js";
 export { MockManagedSwitch, MockSwitch } from "./mock.js";
 export { CiscoSwitch } from "./cisco.js";
+export {
+  Extreme5420M48W4YESwitch,
+  Extreme5420Switch,
+  SwitchEngineJsonRpcTransport,
+} from "./extreme5420.js";

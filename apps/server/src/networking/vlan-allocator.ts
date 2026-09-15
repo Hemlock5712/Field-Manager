@@ -4,20 +4,26 @@ import { DomainError } from "./errors.js";
 export class VlanAllocator {
   constructor(private readonly repository: FieldRepository) {}
 
-  allocate(): number {
+  allocate(supportedVlans?: readonly number[]): number {
     const config = this.repository.getConfig();
     const allocated = new Set(this.repository.listAllocatedVlans());
     const reserved = new Set([config.managementVlan, config.onboardingVlan]);
-    for (
-      let vlanId = config.teamVlanStart;
-      vlanId <= config.teamVlanEnd;
-      vlanId += 1
-    ) {
+    const candidates = supportedVlans
+      ? [...new Set(supportedVlans)].sort((left, right) => left - right)
+      : Array.from(
+          { length: config.teamVlanEnd - config.teamVlanStart + 1 },
+          (_, index) => config.teamVlanStart + index,
+        );
+    for (const vlanId of candidates) {
+      if (vlanId < config.teamVlanStart || vlanId > config.teamVlanEnd)
+        continue;
       if (!reserved.has(vlanId) && !allocated.has(vlanId)) return vlanId;
     }
     throw new DomainError(
       "CONFLICT",
-      "The configured team VLAN pool is exhausted",
+      supportedVlans
+        ? "No VLAN supported by the selected access-point slot is available in the configured team VLAN pool"
+        : "The configured team VLAN pool is exhausted",
       409,
     );
   }

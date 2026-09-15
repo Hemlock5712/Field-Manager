@@ -48,7 +48,7 @@ apps/web       React + Vite operator dashboard and captive portal
 apps/server    Fastify API and application services
 packages/core  Team-network domain model and service contracts
 packages/switch  ManagedSwitch contract, mock adapter, vendor adapters
-packages/ap    AccessPoint contract, mock VH-113, real-adapter skeleton
+packages/ap    AccessPoint contract, mock and real VH-113 adapters
 packages/db    SQLite schema and repositories
 packages/ui    Shared React components
 config/        Safe, non-secret demo configuration
@@ -74,7 +74,11 @@ flowchart LR
   sw -->|access VLAN 30| team[Team 5712 clients]
 ```
 
-Read [network-design.md](docs/network-design.md) before connecting real equipment, [hardware-adapters.md](docs/hardware-adapters.md) before implementing a vendor adapter, and [development.md](docs/development.md) for tests and simulation workflows.
+Read the [hardware setup guide](docs/hardware-setup.md) before commissioning the
+VH-113 or 5420M-48W-4YE, [network-design.md](docs/network-design.md) for the
+logical topology, [hardware-adapters.md](docs/hardware-adapters.md) for adapter
+behavior, and [development.md](docs/development.md) for tests and simulation
+workflows.
 
 ## Security and operational notes
 

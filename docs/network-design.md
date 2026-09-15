@@ -12,7 +12,7 @@ flowchart TB
   infra[Server/API\nmanagement or explicitly allowed service VLAN]
   ap[VH-113\n802.1Q trunk]
   r5712[Team 5712 robot/radio\nTeam VLAN 30]
-  r862[Team 862 robot/radio\nTeam VLAN 31]
+  r862[Team 862 robot/radio\nTeam VLAN 40]
   c1[Client ports\nuntagged access VLAN]
   mgmt --> sw
   sw -->|access 999| c1
@@ -20,10 +20,15 @@ flowchart TB
   sw -->|restricted management| infra
   sw -->|tag team VLANs, native management as required| ap
   ap -->|VLAN 30| r5712
-  ap -->|VLAN 31| r862
+  ap -->|VLAN 40| r862
 ```
 
 An example uses management VLAN 100, onboarding VLAN 999, and team VLANs allocated from 10–90. These are configuration values, not constants. Do not use VLAN 1 for unassigned clients or management. Every switch and AP trunk must be reviewed against the actual hardware's native/tagged VLAN behavior before deployment.
+
+For a real VH-113, allocations are further constrained by station position and
+the AP's three fixed VLAN banks. See the [hardware setup guide](hardware-setup.md)
+for the supported mapping; the unrestricted 10-90 pool remains useful only for
+adapters that report support for those VLANs.
 
 ## VLAN roles
 

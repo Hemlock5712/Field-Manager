@@ -86,6 +86,15 @@ describe("VlanAllocator", () => {
     context.repository.deleteTeamNetwork("team-a");
     expect(context.vlanAllocator.allocate()).toBe(allocated);
   });
+
+  it("restricts allocation to VLANs supported by a hardware slot", async () => {
+    const context = await makeContext();
+    insertTeam(context, "team-a", 5712, 10);
+    expect(context.vlanAllocator.allocate([10, 40, 70])).toBe(40);
+    expect(() => context.vlanAllocator.allocate([10])).toThrowError(
+      "No VLAN supported by the selected access-point slot",
+    );
+  });
 });
 
 describe("PortAssignmentService", () => {
@@ -271,6 +280,13 @@ describe("CaptivePortalService", () => {
 });
 
 describe("team-network creation", () => {
+  it("generates a VH-113-compatible default WPA key", async () => {
+    const context = await makeContext(true);
+    const team = await context.teams.create({ teamNumber: 9999 });
+    const key = await context.credentials.get(team.credentialReference!);
+    expect(key).toMatch(/^[A-Za-z0-9]{8,16}$/);
+  });
+
   it("surfaces an unavailable AP instead of creating a usable team network", async () => {
     const context = await makeContext(true);
     context.mockAccessPoint.setAvailable(false);

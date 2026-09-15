@@ -11,6 +11,8 @@ export interface AccessPointCapabilities {
   slotIds: string[];
   supportsVlanAssignment: boolean;
   supportsAssociationStatus: boolean;
+  /** Optional hardware constraint used by allocators before assigning a slot. */
+  supportedVlansBySlot?: Record<string, number[]>;
 }
 export interface TeamWirelessConfiguration {
   teamNumber: number;
@@ -64,5 +66,6 @@ export type {
   MockApFailureOperation,
   MockAssociation,
 } from "./mock.js";
+export type { VH113AccessPointOptions } from "./vh113.js";
 export { MockAccessPoint, MockVH113AccessPoint } from "./mock.js";
 export { VH113AccessPoint, VH113Adapter } from "./vh113.js";

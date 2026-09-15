@@ -53,13 +53,11 @@ export class TeamNetworkService {
     const now = new Date().toISOString();
     const id = `team-${input.teamNumber}-${crypto.randomUUID().slice(0, 8)}`;
     const credentialRef = `team/${id}/wireless-key`;
-    const wpaKey =
-      input.wpaKey ??
-      `FRC-${input.teamNumber}-${crypto.randomUUID().slice(0, 8)}`;
+    const wpaKey = input.wpaKey ?? generatedWpaKey(input.teamNumber);
     await this.credentials.put(credentialRef, wpaKey);
 
     const record = this.repository.runInTransaction(() => {
-      const vlanId = this.vlanAllocator.allocate();
+      const vlanId = this.vlanAllocator.allocate(selected.supportedVlans);
       const network: TeamNetworkRecord = {
         id,
         teamNumber: input.teamNumber,
@@ -193,7 +191,12 @@ export class TeamNetworkService {
   private async selectStation(
     requestedApId?: string,
     requestedSlot?: string,
-  ): Promise<{ id: string; slotId: string; accessPoint: AccessPoint }> {
+  ): Promise<{
+    id: string;
+    slotId: string;
+    accessPoint: AccessPoint;
+    supportedVlans?: number[];
+  }> {
     const candidates = requestedApId
       ? [
           [requestedApId, this.hardware.getAccessPoint(requestedApId)] as [
@@ -204,10 +207,11 @@ export class TeamNetworkService {
       : this.hardware.listAccessPoints();
     for (const [id, accessPoint] of candidates) {
       let slotIds: string[];
+      let supportedVlansBySlot: Record<string, number[]> | undefined;
       try {
-        slotIds = requestedSlot
-          ? [requestedSlot]
-          : (await accessPoint.getCapabilities()).slotIds;
+        const capabilities = await accessPoint.getCapabilities();
+        slotIds = requestedSlot ? [requestedSlot] : capabilities.slotIds;
+        supportedVlansBySlot = capabilities.supportedVlansBySlot;
       } catch (error) {
         if (requestedApId)
           throw new DomainError(
@@ -236,7 +240,15 @@ export class TeamNetworkService {
           }
           continue;
         }
-        if (status.state === "available") return { id, slotId, accessPoint };
+        if (status.state === "available")
+          return {
+            id,
+            slotId,
+            accessPoint,
+            ...(supportedVlansBySlot?.[slotId]
+              ? { supportedVlans: supportedVlansBySlot[slotId] }
+              : {}),
+          };
       }
     }
     throw new DomainError(
@@ -256,4 +268,11 @@ export class TeamNetworkService {
         .setTrunkVlans(assignment.portId, teamVlans, config.managementVlan);
     }
   }
+}
+
+/** VH-113 firmware permits only 8-16 ASCII alphanumeric WPA keys. */
+function generatedWpaKey(teamNumber: number): string {
+  const prefix = `F${teamNumber}`;
+  const random = crypto.randomUUID().replaceAll("-", "");
+  return `${prefix}${random.slice(0, 16 - prefix.length)}`;
 }

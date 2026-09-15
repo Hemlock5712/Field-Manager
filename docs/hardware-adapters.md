@@ -33,9 +33,13 @@ interface ManagedSwitch {
 
 The mock adapter is the reference behavior for local development. It should support a configurable port count, initial roles/VLANs, simulated link and availability state, learned MAC entries, access/trunk writes, enable/disable, bounce delay, reset, and MAC-table queries. Disabling a mock port forces link down and flushes its learned MAC entries; enabling leaves link down until a simulated device is learned again. Returning a client port to onboarding is an application operation that detaches the assignment, writes the onboarding VLAN, enables the port, and flushes learned MACs. A simulation control can learn/forget a fake device or toggle link state without changing production abstractions. The mock must model a bounce as a brief disable/enable transition and preserve enough state for tests to assert it.
 
-### Vendor adapters
+### Extreme 5420M-48W-4YE
 
-Each vendor gets its own package/module. It translates the contract to the vendor's supported API/CLI, handles authentication and rate limits, and records model/firmware/capability differences. Do not implement a generic switch-management surface for routing, QoS, LACP, ACLs, STP, or PoE just because a vendor supports them. A first real adapter should be developed only after capturing sanitized command/API examples from the exact switch firmware and testing in a lab.
+`Extreme5420Switch` supports a 5420M-48W-4YE running **Switch Engine/ExtremeXOS**. It uses the vendor's HTTPS/HTTP Basic authenticated JSON-RPC `cli` method at `/jsonrpc/`; it does not support a switch booted into Fabric Engine/VOSS. The web interface/JSON-RPC service must be enabled and HTTPS should use a certificate trusted by the Field Manager host.
+
+The adapter implements port detail and VID readback, access and tagged/native VLAN replacement, port enable/disable and bounce, FDB lookup/flush, model verification, and optional `save configuration primary`. Writes are serialized and verified by readback. Configuration persistence is off by default because saving every short-lived practice-field assignment increases flash writes; enable it only when assignments must survive a switch restart.
+
+The default port inventory is the 48 copper plus four uplink data ports (`1` through `52`). Stacked systems must supply their actual port IDs (for example `1:1`) and application roles. The adapter creates missing VLANs as `FM-<VID>` but never deletes VLANs. Test the exact installed Switch Engine release in a lab before field use.
 
 ## Access-point contract
 
@@ -55,18 +59,15 @@ interface AccessPoint {
 
 Capabilities expose available slot IDs, maximum simultaneous stations (if any), supported VLAN/security options, and firmware information. Core code consumes opaque slot IDs. A mock VH-113 may expose six slots and simulate team/SSID/key/VLAN configuration, association/disassociation, signal strength, and station status. The six slots are a mock of current hardware behavior, not a system limit.
 
-### VH-113 status
+### VH-113
 
-The repository should contain a real VH-113 adapter skeleton with configuration and TODO markers, but must not invent endpoint paths, payloads, authentication, or station-state semantics. The exact API remains to be verified against the target firmware and available vendor documentation/source. Before enabling it at an event, verify:
+`VH113AccessPoint` implements the open `frc-radio-api` protocol used by the VH-113 field access point: bearer-token authentication, `GET /status`, and asynchronous whole-document `POST /configuration` with polling/readback. It normalizes the six firmware slot IDs, associations, MACs, signal strength, firmware version, SSID, and VLAN state.
 
-- management transport, authentication, TLS/certificate behavior, and timeout/retry limits;
-- slot discovery and whether identifiers are stable across firmware versions;
-- exact team/SSID/WPA/VLAN configuration operations and their commit semantics;
-- station association status, signal units, stale-state behavior, and reboot impact;
-- whether VLAN tags/native VLANs on the AP trunk match the switch configuration;
-- safe rollback/clear behavior and audit logging.
+Firmware constraints are enforced before a write: SSIDs are 1-14 alphanumeric/hyphen characters, WPA keys are 8-16 alphanumeric characters, and each slot can use only its position in VLAN banks `10_20_30`, `40_50_60`, or `70_80_90`. Red and blue must use different banks. These slot constraints are exposed to the VLAN allocator.
 
-Until these are verified, use the mock adapter or a lab-only implementation behind a feature flag.
+The AP API rewrites all six slots on every configuration request and never returns plaintext WPA keys. The adapter therefore refuses a write if another configured slot's plaintext desired state is unknown. On process startup, callers must populate `initialConfigurations` from their credential store before changing a partially configured AP. This prevents a one-slot update from silently disabling other teams.
+
+Before event use, confirm that the installed AP firmware exposes the documented API (normally port 8081), validate channel/regulatory settings, verify that AP VLAN banks match the switch trunk, and exercise reboot and rollback behavior in a lab.
 
 ## DHCP and credential interfaces
 
