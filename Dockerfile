@@ -32,5 +32,5 @@ FROM workspace AS web-build
 RUN pnpm --filter @repo/web build
 
 FROM nginx:1.29-alpine AS web
-COPY deploy/raspberry-pi/nginx.conf /etc/nginx/conf.d/default.conf
+COPY deploy/raspberry-pi/nginx.conf /etc/nginx/templates/default.conf.template
 COPY --from=web-build /app/apps/web/dist /usr/share/nginx/html

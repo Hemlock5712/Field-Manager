@@ -621,6 +621,39 @@ describe("REST API", () => {
     expect(connect.json()).toMatchObject({ portId: "8", vlanId: 30 });
   });
 
+  it("caches overview reads and invalidates them after mutations", async () => {
+    const context = await makeContext(true);
+    const app = await buildApp(context);
+    apps.push(app);
+
+    const first = await app.inject({ method: "GET", url: "/api/overview" });
+    const second = await app.inject({ method: "GET", url: "/api/overview" });
+
+    expect(first.statusCode).toBe(200);
+    expect(first.headers["x-field-manager-cache"]).toBe("miss");
+    expect(second.statusCode).toBe(200);
+    expect(second.headers["x-field-manager-cache"]).toBe("hit");
+    expect(second.body).toBe(first.body);
+
+    const mutation = await app.inject({
+      method: "POST",
+      url: "/api/dev/dhcp/leases",
+      payload: {
+        ip: "10.99.0.99",
+        mac: "AA:BB:CC:DD:EE:99",
+        vlanId: 999,
+      },
+    });
+    expect(mutation.statusCode).toBe(201);
+
+    const refreshed = await app.inject({
+      method: "GET",
+      url: "/api/overview",
+    });
+    expect(refreshed.statusCode).toBe(200);
+    expect(refreshed.headers["x-field-manager-cache"]).toBe("miss");
+  });
+
   it("returns structured Zod validation errors", async () => {
     const context = await makeContext(true);
     const app = await buildApp(context);

@@ -55,6 +55,7 @@ const resetSimulationSchema = z.object({
   mode: z.enum(["hardware-to-desired", "seeded-demo"]).optional(),
   scope: z.enum(["hardware", "demo"]).optional(),
 });
+const overviewCacheTtlMs = 5_000;
 
 function clientIp(
   request: FastifyRequest,
@@ -87,6 +88,31 @@ export async function buildApp(context: AppContext): Promise<FastifyInstance> {
     trustProxy: context.mode === "production" ? ["127.0.0.1"] : false,
   });
   await app.register(cors, { origin: true });
+
+  type Overview = Awaited<ReturnType<typeof buildOverview>>;
+  let overviewCache: { value: Overview; cachedAt: number } | undefined;
+  let overviewRefresh: Promise<Overview> | undefined;
+  let overviewGeneration = 0;
+  const refreshOverview = (): Promise<Overview> => {
+    if (overviewRefresh) return overviewRefresh;
+    const generation = overviewGeneration;
+    const refresh = buildOverview(context)
+      .then((value) => {
+        if (generation === overviewGeneration)
+          overviewCache = { value, cachedAt: Date.now() };
+        return value;
+      })
+      .finally(() => {
+        if (overviewRefresh === refresh) overviewRefresh = undefined;
+      });
+    overviewRefresh = refresh;
+    return refresh;
+  };
+  const invalidateOverview = (): void => {
+    overviewGeneration += 1;
+    overviewCache = undefined;
+    overviewRefresh = undefined;
+  };
 
   app.setErrorHandler((error, _request, reply) => {
     if (error instanceof ZodError) {
@@ -145,70 +171,32 @@ export async function buildApp(context: AppContext): Promise<FastifyInstance> {
   });
 
   app.get("/api/config", async () => context.repository.getConfig());
-  app.put("/api/config", async (request) =>
-    context.repository.updateConfig(
+  app.put("/api/config", async (request) => {
+    const config = context.repository.updateConfig(
       networkConfigurationSchema.parse(request.body),
-    ),
-  );
-
-  app.get("/api/overview", async () => {
-    const [teamNetworks, switchSummaries, accessPointDetails, reconciliation] =
-      await Promise.all([
-        context.teams.refreshStatuses(),
-        getSwitches(context),
-        getAccessPoints(context),
-        context.health.inspect(),
-      ]);
-    const switches = await Promise.all(
-      switchSummaries
-        .filter((item) => item.available)
-        .map(async (summary) => {
-          const detail = await getPorts(context, summary.id);
-          return {
-            ...detail.switch,
-            managementAddress: detail.switch.managementAddress ?? "",
-            ports: detail.ports,
-          };
-        }),
     );
-    const allPorts = switches.flatMap((item) => item.ports);
-    return {
-      config: context.repository.getConfig(),
-      teamNetworks: teamNetworks.map((team) => ({
-        ...team,
-        robotOnline: team.status === "online",
-        ports: allPorts
-          .filter((port) => port.teamNetworkId === team.id)
-          .map((port) => ({
-            portId: port.id,
-            label: port.label,
-            linkUp: port.linkUp,
-            mac: port.learnedMacs[0]?.mac,
-          })),
-      })),
-      switches,
-      accessPoints: accessPointDetails.map((item) => {
-        if (!item.available || !item.info || !item.stations) {
-          return {
-            id: item.id,
-            name: item.id,
-            availableSlots: 0,
-            online: false,
-          };
-        }
-        return {
-          id: item.id,
-          name: item.info.name,
-          managementAddress: item.info.managementAddress,
-          availableSlots: item.stations.filter(
-            (station) => station.state === "available",
-          ).length,
-          online: true,
-          stations: item.stations,
-        };
-      }),
-      reconciliation,
-    };
+    invalidateOverview();
+    return config;
+  });
+
+  app.get("/api/overview", async (_request, reply) => {
+    reply.header(
+      "cache-control",
+      "private, max-age=2, stale-while-revalidate=30",
+    );
+    if (!overviewCache) {
+      reply.header("x-field-manager-cache", "miss");
+      return refreshOverview();
+    }
+    if (Date.now() - overviewCache.cachedAt <= overviewCacheTtlMs) {
+      reply.header("x-field-manager-cache", "hit");
+      return overviewCache.value;
+    }
+    reply.header("x-field-manager-cache", "stale");
+    void refreshOverview().catch((error) => {
+      app.log.warn({ error }, "Background overview refresh failed");
+    });
+    return overviewCache.value;
   });
 
   app.get("/api/team-networks", async () =>
@@ -228,12 +216,14 @@ export async function buildApp(context: AppContext): Promise<FastifyInstance> {
     const team = await context.teams.create(
       createTeamSchema.parse(request.body),
     );
+    invalidateOverview();
     return reply.status(201).send({ ...team, wiredPorts: [] });
   });
   app.delete<{ Params: { id: string } }>(
     "/api/team-networks/:id",
     async (request, reply) => {
       await context.teams.remove(request.params.id);
+      invalidateOverview();
       return reply.status(204).send();
     },
   );
@@ -282,6 +272,7 @@ export async function buildApp(context: AppContext): Promise<FastifyInstance> {
       if (body.enabled !== undefined)
         await context.ports.setEnabled(id, portId, body.enabled);
       const refreshed = await getPorts(context, id);
+      invalidateOverview();
       return refreshed.ports.find((port) => port.id === portId);
     },
   );
@@ -289,6 +280,7 @@ export async function buildApp(context: AppContext): Promise<FastifyInstance> {
     "/api/switches/:id/ports/:portId/bounce",
     async (request, reply) => {
       await context.ports.bounce(request.params.id, request.params.portId);
+      invalidateOverview();
       return reply.status(204).send();
     },
   );
@@ -306,10 +298,12 @@ export async function buildApp(context: AppContext): Promise<FastifyInstance> {
   });
   app.post("/api/portal/connect", async (request) => {
     const body = portalConnectSchema.parse(request.body);
-    return context.portal.connect(
+    const result = await context.portal.connect(
       clientIp(request, body.ip, context.mode === "mock"),
       body.teamNumber,
     );
+    invalidateOverview();
+    return result;
   });
 
   if (context.simulation) {
@@ -320,6 +314,7 @@ export async function buildApp(context: AppContext): Promise<FastifyInstance> {
       async (request) => {
         const body = availabilitySchema.parse(request.body);
         simulation.setSwitchAvailability(request.params.id, body.available);
+        invalidateOverview();
         return body;
       },
     );
@@ -327,11 +322,13 @@ export async function buildApp(context: AppContext): Promise<FastifyInstance> {
       "/api/dev/switches/:id/ports/:portId",
       async (request) => {
         const body = portSimulationSchema.parse(request.body);
-        return simulation.simulatePort(
+        const port = await simulation.simulatePort(
           request.params.id,
           request.params.portId,
           body,
         );
+        invalidateOverview();
+        return port;
       },
     );
     app.post<{ Params: { id: string } }>(
@@ -342,6 +339,7 @@ export async function buildApp(context: AppContext): Promise<FastifyInstance> {
           request.params.id,
           body.available,
         );
+        invalidateOverview();
         return body;
       },
     );
@@ -349,21 +347,25 @@ export async function buildApp(context: AppContext): Promise<FastifyInstance> {
       "/api/dev/access-points/:id/stations/:slotId",
       async (request) => {
         const body = stationSimulationSchema.parse(request.body);
-        return simulation.simulateStation(
+        const station = await simulation.simulateStation(
           request.params.id,
           request.params.slotId,
           body,
         );
+        invalidateOverview();
+        return station;
       },
     );
     app.post("/api/dev/dhcp/leases", async (request, reply) => {
       const lease = simulation.createLease(dhcpLeaseSchema.parse(request.body));
+      invalidateOverview();
       return reply.status(201).send(lease);
     });
     app.delete<{ Params: { ip: string } }>(
       "/api/dev/dhcp/leases/:ip",
       async (request, reply) => {
         simulation.deleteLease(request.params.ip);
+        invalidateOverview();
         return reply.status(204).send();
       },
     );
@@ -375,6 +377,7 @@ export async function buildApp(context: AppContext): Promise<FastifyInstance> {
         body.message ?? undefined,
         body.id,
       );
+      invalidateOverview();
       return {
         hardware: body.hardware,
         operation: body.operation,
@@ -386,11 +389,73 @@ export async function buildApp(context: AppContext): Promise<FastifyInstance> {
       const mode =
         body.mode ??
         (body.scope === "demo" ? "seeded-demo" : "hardware-to-desired");
-      return simulation.reset(mode);
+      const result = await simulation.reset(mode);
+      invalidateOverview();
+      return result;
     });
   }
 
   return app;
+}
+
+async function buildOverview(context: AppContext) {
+  const [teamNetworks, switchSummaries, accessPointDetails, reconciliation] =
+    await Promise.all([
+      context.teams.refreshStatuses(),
+      getSwitches(context),
+      getAccessPoints(context),
+      context.health.inspect(),
+    ]);
+  const switches = await Promise.all(
+    switchSummaries
+      .filter((item) => item.available)
+      .map(async (summary) => {
+        const detail = await getPorts(context, summary.id);
+        return {
+          ...detail.switch,
+          managementAddress: detail.switch.managementAddress ?? "",
+          ports: detail.ports,
+        };
+      }),
+  );
+  const allPorts = switches.flatMap((item) => item.ports);
+  return {
+    config: context.repository.getConfig(),
+    teamNetworks: teamNetworks.map((team) => ({
+      ...team,
+      robotOnline: team.status === "online",
+      ports: allPorts
+        .filter((port) => port.teamNetworkId === team.id)
+        .map((port) => ({
+          portId: port.id,
+          label: port.label,
+          linkUp: port.linkUp,
+          mac: port.learnedMacs[0]?.mac,
+        })),
+    })),
+    switches,
+    accessPoints: accessPointDetails.map((item) => {
+      if (!item.available || !item.info || !item.stations) {
+        return {
+          id: item.id,
+          name: item.id,
+          availableSlots: 0,
+          online: false,
+        };
+      }
+      return {
+        id: item.id,
+        name: item.info.name,
+        managementAddress: item.info.managementAddress,
+        availableSlots: item.stations.filter(
+          (station) => station.state === "available",
+        ).length,
+        online: true,
+        stations: item.stations,
+      };
+    }),
+    reconciliation,
+  };
 }
 
 async function getSwitches(context: AppContext) {

@@ -114,6 +114,9 @@ services:
     depends_on:
       server:
         condition: service_healthy
+    environment:
+      FM_ONBOARDING_SUBNET: ${FM_ONBOARDING_SUBNET:-10.99.0.0/24}
+      FM_ONBOARDING_PORTAL_URL: ${FM_ONBOARDING_PORTAL_URL:-http://10.99.0.1/portal}
     restart: unless-stopped
 
 volumes:

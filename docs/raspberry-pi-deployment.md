@@ -10,10 +10,10 @@ Connect the Pi's Ethernet port to a switch port tagged for management VLAN 100
 and onboarding VLAN 999. The boot-persistent `network-init` container creates
 these host interfaces:
 
-| Interface    | Address      | Purpose                                   |
-| ------------ | ------------ | ----------------------------------------- |
-| `fm-mgmt`    | `10.0.100.5` | Switch, AP, and operator management       |
-| `fm-onboard` | `10.99.0.1`  | Onboarding DHCP, DNS, and portal          |
+| Interface    | Address      | Purpose                             |
+| ------------ | ------------ | ----------------------------------- |
+| `fm-mgmt`    | `10.0.100.5` | Switch, AP, and operator management |
+| `fm-onboard` | `10.99.0.1`  | Onboarding DHCP, DNS, and portal    |
 
 The supplied field plan keeps the Practice-profile AP at `10.0.100.1`, the
 switch at `10.0.100.2`, and the Pi at `10.0.100.5`, all on management VLAN 100.
@@ -94,7 +94,11 @@ port ownership into a live switch without comparing it to the cabling plan.
 The nginx policy assumes management clients are in `10.0.100.0/24`. If that
 subnet changes, update the `allow` entry in
 `deploy/raspberry-pi/nginx.conf`. If the onboarding subnet changes, update the
-Pi address, dnsmasq pool/options, AP portal URL, and nginx policy together.
+Pi address, dnsmasq pool/options, `FM_ONBOARDING_SUBNET`,
+`FM_ONBOARDING_PORTAL_URL`, and nginx policy together. Requests received from
+the onboarding subnet are redirected to the portal URL, including operating
+system connectivity checks such as `msftconnecttest.com/redirect`; portal
+assets and the limited `/api/portal/` API remain directly accessible.
 
 ## Switch-side prerequisites
 
