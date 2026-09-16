@@ -23,7 +23,7 @@ const VLAN_BANKS = [
   [40, 50, 60],
   [70, 80, 90],
 ] as const;
-const PRACTICE_BASELINE_SSIDS: Record<SlotId, string> = {
+const PRACTICE_PLACEHOLDER_SSIDS: Record<SlotId, string> = {
   red1: "1",
   red2: "2",
   red3: "3",
@@ -255,7 +255,7 @@ export class VH113AccessPoint implements AccessPoint {
     const remote = status.stationStatuses[slot];
     if (status.status === "ERROR")
       return { slotId, state: "error", message: "VH-113 reported ERROR" };
-    if (isPracticeBaseline(status)) {
+    if (isPracticePlaceholder(status, slot)) {
       if (this.configurations.has(slot))
         return {
           slotId,
@@ -309,7 +309,7 @@ export class VH113AccessPoint implements AccessPoint {
     status: VH113Status,
   ): TeamWirelessConfiguration | undefined {
     const remote = status.stationStatuses[slotId];
-    if (!remote) return undefined;
+    if (!remote || isPracticePlaceholder(status, slotId)) return undefined;
     const desired = this.configurations.get(slotId);
     const teamNumber =
       desired?.ssid === remote.ssid
@@ -346,11 +346,11 @@ export class VH113AccessPoint implements AccessPoint {
     status: VH113Status,
     changingSlot: SlotId,
   ): void {
-    if (isPracticeBaseline(status)) return;
     const unknown = VH113_SLOT_IDS.filter(
       (slotId) =>
         slotId !== changingSlot &&
         status.stationStatuses[slotId] !== null &&
+        !isPracticePlaceholder(status, slotId) &&
         !this.configurations.has(slotId),
     );
     if (unknown.length > 0)
@@ -453,7 +453,8 @@ export class VH113AccessPoint implements AccessPoint {
       const desired = configurations.get(slotId);
       const actual = status.stationStatuses[slotId];
       if (!desired) {
-        if (actual !== null) return false;
+        if (actual !== null && !isPracticePlaceholder(status, slotId))
+          return false;
         continue;
       }
       if (!actual || actual.ssid !== desired.ssid) return false;
@@ -529,19 +530,14 @@ export class VH113AccessPoint implements AccessPoint {
   }
 }
 
-function isPracticeBaseline(status: VH113Status): boolean {
+function isPracticePlaceholder(status: VH113Status, slotId: SlotId): boolean {
+  const station = status.stationStatuses[slotId];
   return (
-    status.status === "ACTIVE" &&
     /_AP_PRACTICE_/i.test(status.version ?? "") &&
-    VH113_SLOT_IDS.every((slotId) => {
-      const station = status.stationStatuses[slotId];
-      return (
-        station !== null &&
-        station.ssid === PRACTICE_BASELINE_SSIDS[slotId] &&
-        !station.isLinked &&
-        station.macAddress === ""
-      );
-    })
+    station !== null &&
+    station.ssid === PRACTICE_PLACEHOLDER_SSIDS[slotId] &&
+    !station.isLinked &&
+    station.macAddress === ""
   );
 }
 

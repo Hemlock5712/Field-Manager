@@ -317,9 +317,15 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   if (!response.ok) {
     const text = await response.text();
     try {
-      const parsed = JSON.parse(text) as { error?: { message?: string } };
+      const parsed = JSON.parse(text) as {
+        error?: { message?: string; details?: { cause?: string } };
+      };
+      const message = parsed.error?.message;
+      const cause = parsed.error?.details?.cause;
       throw new Error(
-        parsed.error?.message ?? `Request failed (${response.status})`,
+        cause
+          ? `${message ?? `Request failed (${response.status})`}: ${cause}`
+          : (message ?? `Request failed (${response.status})`),
       );
     } catch (error) {
       if (error instanceof SyntaxError)

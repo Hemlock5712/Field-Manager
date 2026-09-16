@@ -33,6 +33,9 @@ function fakeApi(initial = status()) {
     if (path === "/configuration" && init?.method === "POST") {
       const body = JSON.parse(String(init.body)) as Record<string, unknown>;
       requests.push({ path, body });
+      const practiceFirmware = String(current.version).includes(
+        "_AP_PRACTICE_",
+      );
       const stationConfigurations = body.stationConfigurations as Record<
         string,
         { ssid: string }
@@ -52,9 +55,19 @@ function fakeApi(initial = status()) {
                   macAddress: "",
                   signalDbm: 0,
                 }
-              : null,
+              : practiceFirmware
+                ? {
+                    ssid: String(slots.indexOf(slot) + 1),
+                    hashedWpaKey: `hash-${slot}`,
+                    wpaKeySalt: `salt-${slot}`,
+                    isLinked: false,
+                    macAddress: "",
+                    signalDbm: 0,
+                  }
+                : null,
           ]),
         ),
+        version: current.version,
       });
       return new Response("accepted", { status: 202 });
     }
@@ -112,6 +125,9 @@ describe("VH113AccessPoint", () => {
         red1: { ssid: "FRC-5712", wpaKey: "SecureKey123" },
       },
     });
+    await expect(ap.getStationStatus("blue3")).resolves.toMatchObject({
+      state: "available",
+    });
   });
 
   it("does not treat a partially matching Practice profile as empty", async () => {
@@ -128,7 +144,7 @@ describe("VH113AccessPoint", () => {
     });
 
     await expect(ap.getStationStatus("red1")).resolves.toMatchObject({
-      state: "configured",
+      state: "available",
     });
     await expect(
       ap.configureTeam("blue1", {
